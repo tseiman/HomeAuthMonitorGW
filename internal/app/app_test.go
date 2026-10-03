@@ -1,0 +1,78 @@
+package app
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func pair(t *testing.T, d, n string, serial int64) (string, string) {
+	k, _ := rsa.GenerateKey(rand.Reader, 2048)
+	x := x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, _ := x509.CreateCertificate(rand.Reader, &x, &x, &k.PublicKey, k)
+	c, kp := filepath.Join(d, n+".crt"), filepath.Join(d, n+".key")
+	os.WriteFile(c, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+	os.WriteFile(kp, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}), 0o600)
+	return c, kp
+}
+func writeConfig(t *testing.T, path, cert, key, token string) {
+	s := "server:\n  listen: '127.0.0.1:8443'\n  certificate: '" + cert + "'\n  private_key: '" + key + "'\nauthentication:\n  bearer_token_file: '" + token + "'\n"
+	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestReloadCommitsValidCandidate(t *testing.T) {
+	d := t.TempDir()
+	c1, k1 := pair(t, d, "one", 1)
+	token := filepath.Join(d, "token")
+	os.WriteFile(token, []byte("first-token"), 0o600)
+	cfg := filepath.Join(d, "config.yaml")
+	writeConfig(t, cfg, c1, k1, token)
+	a, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	c2, k2 := pair(t, d, "two", 2)
+	os.WriteFile(token, []byte("second-token"), 0o600)
+	writeConfig(t, cfg, c2, k2, token)
+	if err := a.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if a.Token() != "second-token" {
+		t.Fatalf("token=%q", a.Token())
+	}
+	cert, _ := a.TLS.GetCertificate(nil)
+	x, _ := x509.ParseCertificate(cert.Certificate[0])
+	if x.SerialNumber.Int64() != 2 {
+		t.Fatalf("serial=%s", x.SerialNumber)
+	}
+}
+func TestReloadFailurePreservesActiveState(t *testing.T) {
+	d := t.TempDir()
+	c, k := pair(t, d, "one", 1)
+	token := filepath.Join(d, "token")
+	os.WriteFile(token, []byte("first-token"), 0o600)
+	cfg := filepath.Join(d, "config.yaml")
+	writeConfig(t, cfg, c, k, token)
+	a, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	os.WriteFile(token, []byte("changed-token"), 0o600)
+	os.WriteFile(cfg, []byte("server:\n  unknown: true\n"), 0o600)
+	if err := a.Reload(); err == nil {
+		t.Fatal("expected error")
+	}
+	if a.Token() != "first-token" {
+		t.Fatalf("active token changed: %q", a.Token())
+	}
+}

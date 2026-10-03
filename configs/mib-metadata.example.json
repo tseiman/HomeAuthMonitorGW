@@ -1,0 +1,15 @@
+[
+  {
+    "oid": "1.3.6.1.2.1.1.3.0",
+    "name": "sysUpTime",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "Time since the network-management portion was re-initialized"
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.5.0",
+    "name": "sysName",
+    "type": "DisplayString",
+    "description": "Administratively assigned node name"
+  }
+]

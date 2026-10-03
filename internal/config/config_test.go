@@ -1,0 +1,106 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestLoadValidConfigAndSecrets(t *testing.T) {
+	d := t.TempDir()
+	write := func(name, value string) string {
+		p := filepath.Join(d, name)
+		if err := os.WriteFile(p, []byte(value+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	token, auth, priv := write("token", "test-token-value"), write("auth", "test-auth-passphrase"), write("priv", "test-privacy-passphrase")
+	cfg := `
+server:
+  listen: "127.0.0.1:8443"
+  certificate: "/tmp/cert.pem"
+  private_key: "/tmp/key.pem"
+authentication:
+  bearer_token_file: "` + token + `"
+collectors:
+  nut:
+    enabled: true
+    server: "127.0.0.1:3493"
+    ups: "quint"
+    poll_interval: "10s"
+    stale_after: "30s"
+  wago:
+    enabled: true
+    address: "192.0.2.10"
+    port: 161
+    poll_interval: "30s"
+    stale_after: "90s"
+    oids: ["1.3.6.1.2.1.1.3.0"]
+    snmp:
+      version: "3"
+      username: "monitor"
+      auth_protocol: "SHA"
+      auth_passphrase_file: "` + auth + `"
+      privacy_protocol: "DES"
+      privacy_passphrase_file: "` + priv + `"
+    discovery:
+      enabled: true
+      root_oids: ["1.3.6.1.2.1"]
+`
+	p := filepath.Join(d, "config.yaml")
+	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(p, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Collectors.NUT.PollInterval.Duration != 10*time.Second {
+		t.Fatalf("interval=%v", got.Collectors.NUT.PollInterval.Duration)
+	}
+	if got.Secrets.BearerToken != "test-token-value" || got.Secrets.SNMPAuthPassphrase != "test-auth-passphrase" {
+		t.Fatal("secrets not loaded")
+	}
+}
+
+func TestLoadRejectsUnknownField(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte("server:\n  listen: ':8443'\n  typo: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(p, false)
+	if err == nil || !strings.Contains(err.Error(), "field typo not found") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestLoadRejectsInsecureSecretPermissions(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(p, []byte("not-a-real-token"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(p); err == nil || !strings.Contains(err.Error(), "permissions") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestValidateRejectsUnsafeOrIncompleteConfig(t *testing.T) {
+	cfg := Config{Server: Server{Listen: ":8443"}, Authentication: Authentication{BearerTokenFile: "/token"}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("err=%v", err)
+	}
+
+	cfg.Server.Certificate, cfg.Server.PrivateKey = "/cert", "/key"
+	cfg.Collectors.WAGO.Enabled = true
+	cfg.Collectors.WAGO.Address = "192.0.2.10"
+	cfg.Collectors.WAGO.OIDs = []string{"1.3.6.1.2.1.1.3.0"}
+	cfg.Collectors.WAGO.PollInterval.Duration = time.Second
+	cfg.Collectors.WAGO.StaleAfter.Duration = 2 * time.Second
+	cfg.Collectors.WAGO.SNMP = SNMP{Version: "3", Username: "u", AuthProtocol: "SHA", AuthPassphraseFile: "/auth", PrivacyProtocol: "AES", PrivacyPassphraseFile: "/priv"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "DES") {
+		t.Fatalf("err=%v", err)
+	}
+}

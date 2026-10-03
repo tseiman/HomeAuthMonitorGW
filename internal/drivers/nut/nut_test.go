@@ -1,0 +1,54 @@
+package nut
+
+import (
+	"bufio"
+	"context"
+	"net"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestParseListVARHandlesEscapesAndTypes(t *testing.T) {
+	input := "BEGIN LIST VAR quint\nVAR quint battery.charge \"98\"\nVAR quint ups.status \"OL \\\"ready\\\"\"\nEND LIST VAR quint\n"
+	got, err := ParseListVAR(bufio.NewReader(strings.NewReader(input)), "quint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["battery.charge"] != "98" || got["ups.status"] != `OL "ready"` {
+		t.Fatalf("got=%#v", got)
+	}
+}
+
+func TestParseListVARRejectsProtocolErrorAndWrongUPS(t *testing.T) {
+	if _, err := ParseListVAR(bufio.NewReader(strings.NewReader("ERR UNKNOWN-UPS\n")), "quint"); err == nil {
+		t.Fatal("expected error")
+	}
+	if _, err := ParseListVAR(bufio.NewReader(strings.NewReader("BEGIN LIST VAR other\n")), "quint"); err == nil {
+		t.Fatal("expected wrong UPS error")
+	}
+}
+
+func TestClientUsesOnlyListVAR(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	commands := make(chan string, 1)
+	go func() {
+		c, _ := ln.Accept()
+		defer c.Close()
+		line, _ := bufio.NewReader(c).ReadString('\n')
+		commands <- line
+		c.Write([]byte("BEGIN LIST VAR quint\nVAR quint ups.status \"OL\"\nEND LIST VAR quint\n"))
+	}()
+	client := Client{Address: ln.Addr().String(), Timeout: time.Second}
+	got, err := client.ListVariables(context.Background(), "quint")
+	if err != nil || got["ups.status"] != "OL" {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+	if cmd := <-commands; cmd != "LIST VAR quint\n" {
+		t.Fatalf("unsafe/unexpected command %q", cmd)
+	}
+}

@@ -1,0 +1,74 @@
+package tlsreload
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func writePair(t *testing.T, dir, name string, serial int64) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "gateway.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPath, keyPath := filepath.Join(dir, name+".crt"), filepath.Join(dir, name+".key")
+	os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+	os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600)
+	return certPath, keyPath
+}
+func serial(t *testing.T, m *Manager) int64 {
+	t.Helper()
+	c, err := m.GetCertificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return x.SerialNumber.Int64()
+}
+func TestReloadAtomicallyReplacesValidCertificate(t *testing.T) {
+	d := t.TempDir()
+	c1, k1 := writePair(t, d, "one", 1)
+	m, err := New(c1, k1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, k2 := writePair(t, d, "two", 2)
+	if err := m.Reload(c2, k2); err != nil {
+		t.Fatal(err)
+	}
+	if got := serial(t, m); got != 2 {
+		t.Fatalf("serial=%d", got)
+	}
+}
+func TestFailedReloadKeepsLastKnownGood(t *testing.T) {
+	d := t.TempDir()
+	c, k := writePair(t, d, "one", 1)
+	m, err := New(c, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(d, "bad")
+	os.WriteFile(bad, []byte("not a keypair"), 0o600)
+	if err := m.Reload(bad, bad); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := serial(t, m); got != 1 {
+		t.Fatalf("serial=%d", got)
+	}
+}

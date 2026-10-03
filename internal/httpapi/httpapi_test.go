@@ -1,0 +1,87 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+)
+
+func testHandler(publicHealth bool) http.Handler {
+	s := cache.New(time.Now)
+	s.Register("wago", "snmp", time.Minute)
+	s.Success("wago", []metrics.Metric{{Name: "uptime", Value: uint64(7), ValueType: "counter", Timestamp: time.Unix(1, 0).UTC()}}, time.Millisecond)
+	return New(s, func() string { return "token-for-tests" }, Options{Version: "1.0.0-test", HealthPublic: publicHealth, CertificateNotAfter: func() time.Time { return time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC) }})
+}
+func TestBearerAuthentication(t *testing.T) {
+	h := testHandler(false)
+	for _, tc := range []struct {
+		header string
+		want   int
+	}{{"", 401}, {"Bearer wrong", 401}, {"bearer token-for-tests", 401}, {"Bearer token-for-tests", 200}} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/sources", nil)
+		r.Header.Set("Authorization", tc.header)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("header=%q code=%d", tc.header, w.Code)
+		}
+	}
+}
+func TestSourceMetricsJSONAndNoClientSelectedOID(t *testing.T) {
+	h := testHandler(false)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/sources/wago/metrics?oid=1.2.3", nil)
+	r.Header.Set("Authorization", "Bearer token-for-tests")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Source  string           `json:"source"`
+		Stale   bool             `json:"stale"`
+		Metrics []metrics.Metric `json:"metrics"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Source != "wago" || body.Stale || len(body.Metrics) != 1 {
+		t.Fatalf("body=%+v", body)
+	}
+}
+func TestMethodAndUnknownSource(t *testing.T) {
+	h := testHandler(false)
+	for _, tc := range []struct {
+		method, path string
+		code         int
+	}{{http.MethodPost, "/api/v1/sources", 405}, {http.MethodGet, "/api/v1/sources/missing", 404}} {
+		r := httptest.NewRequest(tc.method, tc.path, nil)
+		r.Header.Set("Authorization", "Bearer token-for-tests")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.code {
+			t.Fatalf("%s %s=%d", tc.method, tc.path, w.Code)
+		}
+	}
+}
+func TestPublicHealthContainsNoSourceDetails(t *testing.T) {
+	h := testHandler(true)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("code=%d", w.Code)
+	}
+	var body map[string]any
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["status"] != "ok" || body["version"] != "1.0.0-test" {
+		t.Fatalf("body=%v", body)
+	}
+	if _, ok := body["sources"]; ok {
+		t.Fatal("health leaks source details")
+	}
+}

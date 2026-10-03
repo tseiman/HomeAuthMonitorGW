@@ -1,0 +1,49 @@
+package cache
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+)
+
+func TestStoreKeepsLastKnownGoodAndMarksStaleAfterFailure(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	s := New(func() time.Time { return now })
+	s.Register("wago", "snmp", time.Minute)
+	s.Success("wago", []metrics.Metric{{Name: "uptime", Value: uint64(7), Timestamp: now}}, 20*time.Millisecond)
+	now = now.Add(10 * time.Second)
+	s.Failure("wago", errors.New("connection details secret"), 3*time.Second)
+
+	got, ok := s.Snapshot("wago")
+	if !ok || got.Available || !got.Stale {
+		t.Fatalf("snapshot=%+v ok=%v", got, ok)
+	}
+	if got.Error != "collector unavailable" {
+		t.Fatalf("unsanitized error: %q", got.Error)
+	}
+	if len(got.Metrics) != 1 || got.Metrics[0].Value != uint64(7) {
+		t.Fatalf("last-known-good lost: %+v", got.Metrics)
+	}
+	if got.LastSuccess.IsZero() || got.LastAttempt != now {
+		t.Fatalf("times=%+v", got)
+	}
+}
+
+func TestSnapshotBecomesStaleByAgeAndIsACopy(t *testing.T) {
+	now := time.Now().UTC()
+	s := New(func() time.Time { return now })
+	s.Register("quint", "nut", 5*time.Second)
+	s.Success("quint", []metrics.Metric{{Name: "x", Value: "y", Labels: map[string]string{"a": "b"}}}, time.Millisecond)
+	now = now.Add(6 * time.Second)
+	got, _ := s.Snapshot("quint")
+	if !got.Stale || !got.Available {
+		t.Fatalf("snapshot=%+v", got)
+	}
+	got.Metrics[0].Labels["a"] = "changed"
+	again, _ := s.Snapshot("quint")
+	if again.Metrics[0].Labels["a"] != "b" {
+		t.Fatal("snapshot aliases cache")
+	}
+}
