@@ -143,7 +143,7 @@ ensure_directory() {
         [[ -d "$target" ]] || die "expected directory: $target"
         if [[ "$TESTING" != "1" ]]; then
             metadata="$(stat -c '%U:%G:%a' -- "$target")"
-            [[ "$metadata" == "root:${SERVICE_GROUP}:${mode#0}" ]] || die "unsafe existing directory ownership or mode for $target: $metadata"
+            [[ "$metadata" == "root:${SERVICE_GROUP}:${mode#0}" ]] || die "unsafe existing directory ownership or mode for $target: found $metadata, expected root:${SERVICE_GROUP}:${mode#0}; fix with: chown root:${SERVICE_GROUP} '$target' && chmod ${mode#0} '$target'"
         fi
         log "validated existing directory $target"
         return
