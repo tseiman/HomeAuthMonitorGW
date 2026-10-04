@@ -28,53 +28,68 @@ var (
 	buildTime = "unknown"
 )
 
-// main passes process arguments and standard streams to run, then exits with the returned status code.
-func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+const maxConfigFiles = 32
 
-// run parses args, writes normal and diagnostic output to the supplied writers, and returns a process exit code without exiting directly.
-func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("automation-gateway", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	configPath := fs.String("config", "/etc/automation-gateway/config.yaml", "configuration file")
-	check := fs.Bool("check", false, "validate configuration and referenced files, then exit")
-	showVersion := fs.Bool("version", false, "print version and exit")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "unexpected positional arguments")
-		return 2
-	}
-	if *showVersion {
-		fmt.Fprintf(stdout, "automation-gateway %s (commit %s, built %s)\n", version, commit, buildTime)
-		return 0
-	}
-	if *check {
-		if err := app.Check(*configPath); err != nil {
-			fmt.Fprintf(stderr, "configuration invalid: %v\n", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "configuration OK")
-		return 0
-	}
-	if err := serve(*configPath, stderr); err != nil {
-		fmt.Fprintf(stderr, "automation-gateway: %v\n", err)
-		return 1
-	}
-	return 0
+type commandOptions struct {
+	configPaths []string
+	check       bool
+	showVersion bool
+	foreground  bool
+	logLevel    string
 }
 
-// serve loads configPath, runs the HTTPS gateway using logOutput for structured logs, logs reload failures without exiting, and returns any startup, serving, or graceful-shutdown error.
-func serve(configPath string, logOutput io.Writer) error {
-	bootstrap := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	runtime, err := app.New(configPath, bootstrap)
-	if err != nil {
-		return err
+type configPaths []string
+
+// String renders configured paths for flag package diagnostics.
+func (p *configPaths) String() string { return fmt.Sprint([]string(*p)) }
+
+// Set appends one non-empty configuration path.
+func (p *configPaths) Set(value string) error {
+	if value == "" {
+		return errors.New("configuration path must not be empty")
 	}
-	defer runtime.Close()
-	cfg := runtime.Config()
+	if len(*p) >= maxConfigFiles {
+		return fmt.Errorf("at most %d configuration files are allowed", maxConfigFiles)
+	}
+	*p = append(*p, value)
+	return nil
+}
+
+// parseOptions validates command-line syntax and applies production defaults without starting the service.
+func parseOptions(args []string, diagnostics io.Writer) (commandOptions, error) {
+	var options commandOptions
+	var paths configPaths
+	fs := flag.NewFlagSet("automation-gateway", flag.ContinueOnError)
+	fs.SetOutput(diagnostics)
+	fs.Var(&paths, "config", "configuration file; repeat for ordered overlays")
+	fs.BoolVar(&options.check, "check", false, "validate configuration and referenced files, then exit")
+	fs.BoolVar(&options.showVersion, "version", false, "print version and exit")
+	fs.BoolVar(&options.foreground, "foreground", false, "use human-readable foreground logging")
+	fs.StringVar(&options.logLevel, "log-level", "", "override log level: debug, info, warn, or error")
+	if err := fs.Parse(args); err != nil {
+		return commandOptions{}, err
+	}
+	if fs.NArg() != 0 {
+		return commandOptions{}, errors.New("unexpected positional arguments")
+	}
+	if options.logLevel != "" && options.logLevel != "debug" && options.logLevel != "info" && options.logLevel != "warn" && options.logLevel != "error" {
+		return commandOptions{}, fmt.Errorf("invalid --log-level %q", options.logLevel)
+	}
+	if len(paths) == 0 {
+		paths = append(paths, "/etc/automation-gateway/config.yaml")
+	}
+	options.configPaths = append([]string(nil), paths...)
+	return options, nil
+}
+
+// newLogger creates text output for explicit foreground use and JSON otherwise, with an optional level override.
+func newLogger(output io.Writer, foreground bool, configuredLevel, override string) *slog.Logger {
+	levelName := configuredLevel
+	if override != "" {
+		levelName = override
+	}
 	level := slog.LevelInfo
-	switch cfg.Logging.Level {
+	switch levelName {
 	case "debug":
 		level = slog.LevelDebug
 	case "warn":
@@ -82,7 +97,59 @@ func serve(configPath string, logOutput io.Writer) error {
 	case "error":
 		level = slog.LevelError
 	}
-	logger := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: level}))
+	options := &slog.HandlerOptions{Level: level}
+	if foreground {
+		return slog.New(slog.NewTextHandler(output, options))
+	}
+	return slog.New(slog.NewJSONHandler(output, options))
+}
+
+// main passes process arguments and standard streams to run, then exits with the returned status code.
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run parses args, writes normal and diagnostic output to the supplied writers, and returns a process exit code without exiting directly.
+func run(args []string, stdout, stderr io.Writer) int {
+	options, err := parseOptions(args, stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if options.showVersion {
+		fmt.Fprintf(stdout, "automation-gateway %s (commit %s, built %s)\n", version, commit, buildTime)
+		return 0
+	}
+	if options.check {
+		if err := app.CheckFiles(options.configPaths); err != nil {
+			fmt.Fprintf(stderr, "configuration invalid: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "configuration OK")
+		return 0
+	}
+	logOutput := stderr
+	if options.foreground {
+		logOutput = stdout
+	}
+	if err := serve(options.configPaths, logOutput, options.foreground, options.logLevel); err != nil {
+		fmt.Fprintf(stderr, "automation-gateway: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// serve loads configPaths, runs the HTTPS gateway using logOutput, logs reload failures without exiting, and returns any startup, serving, or graceful-shutdown error.
+func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOverride string) error {
+	bootstrap := newLogger(logOutput, foreground, "info", levelOverride)
+	runtime, err := app.NewFiles(configPaths, bootstrap)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
+	cfg := runtime.Config()
+	logger := newLogger(logOutput, foreground, cfg.Logging.Level, levelOverride)
 	handler := httpapi.New(func() httpapi.View {
 		view := runtime.View()
 		return httpapi.View{Store: view.Store, TokenDigests: view.TokenDigests, AllowedClients: view.AllowedClients, CertificateNotAfter: view.CertificateNotAfter}

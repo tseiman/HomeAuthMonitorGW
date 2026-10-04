@@ -13,6 +13,7 @@ The service is **not** an SNMP, NUT, or HTTP proxy. HTTP clients cannot choose a
 - [NUT, upsd, and USB](#nut-upsd-and-usb)
 - [WAGO SNMPv3](#wago-snmpv3)
 - [Configuration and secrets](#configuration-and-secrets)
+- [Command-line interface](#command-line-interface)
 - [MIB metadata and discovery](#mib-metadata-and-discovery)
 - [TLS, LEGO, and reload](#tls-lego-and-reload)
 - [API reference](#api-reference)
@@ -228,7 +229,37 @@ Validate as the service user because that checks its actual read permissions:
 sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
 ```
 
-On SIGHUP, a complete candidate is parsed, semantically validated, all active secret and metadata files are loaded, the TLS pair is verified, and active collector objects are prepared before activation. Disabled sources do not cause file reads or collector construction. Cache registration, compatible last-known-good snapshots, token digests, client prefixes, TLS certificate, and configuration are assembled as one replacement generation and published atomically. Failure preserves the active generation and certificate. Listener address, server timeouts/header limit, and shutdown timeout are immutable while running; changing one makes reload fail and requires a restart. Tokens, allowed clients, TLS files, OIDs, source timing, credentials, and enabled sources are reloadable.
+On SIGHUP, a complete candidate is parsed, semantically validated, all active secret and metadata files are loaded, the TLS pair is verified, and active collector objects are prepared before activation. Disabled sources do not cause file reads or collector construction. Cache registration, compatible last-known-good snapshots, token digests, client prefixes, TLS certificate, and configuration are assembled as one replacement generation and published atomically. Failure preserves the active generation and last-known-good snapshots. Listener address, server timeouts/header limit, and shutdown timeout are immutable while running; changing one makes reload fail and requires a restart. Tokens, allowed clients, TLS files, OIDs, source timing, credentials, and enabled sources are reloadable.
+
+## Command-line interface
+
+The process always stays in the foreground; it never daemonizes itself. With no arguments it loads `/etc/automation-gateway/config.yaml`, writes JSON log records to stderr for systemd/journald, and starts the HTTPS listener.
+
+```text
+automation-gateway [--config PATH]... [--check] [--version] [--foreground] [--log-level LEVEL]
+```
+
+- `--config PATH` selects a configuration file and may be repeated up to 32 times. Files are applied from left to right. Mappings are merged recursively; later scalar and list values replace earlier values. Therefore a later `sources`, `bearer_token_files`, or `allowed_clients` list replaces the complete earlier list rather than appending to it. SIGHUP reloads the same ordered file stack.
+- `--check` performs the full parse, merge, semantic validation, secret/metadata reads, collector preparation, and TLS verification, then exits without listening or polling.
+- `--version` prints the injected version, commit, and UTC build time, then exits.
+- `--foreground` switches logs to human-readable text on stdout for interactive operation. It does not alter process lifetime or background itself.
+- `--log-level debug|info|warn|error` overrides `logging.level` for that process. Without it, the merged configuration value applies.
+- `--help` prints flag help and exits successfully.
+
+Example with a site overlay:
+
+```bash
+/usr/local/sbin/automation-gateway \
+  --config /etc/automation-gateway/config.yaml \
+  --config /etc/automation-gateway/site.yaml \
+  --check
+
+/usr/local/sbin/automation-gateway \
+  --config /etc/automation-gateway/config.yaml \
+  --config /etc/automation-gateway/site.yaml \
+  --foreground \
+  --log-level debug
+```
 
 ## MIB metadata and discovery
 
@@ -372,7 +403,7 @@ sudo systemctl restart automation-gateway
 sudo systemctl stop automation-gateway
 ```
 
-Logs are one JSON object per line through stdout/stderr for journald. Levels are `debug`, `info`, `warn`, and `error`. INFO records lifecycle, reload, and state transitions, not every successful poll. Errors are sanitized by the API; logs identify source and operation but do not include token/passphrase values.
+Service-mode logs are one JSON object per line on stderr, which systemd sends to journald. Explicit `--foreground` mode writes human-readable text to stdout. Levels are `debug`, `info`, `warn`, and `error`. INFO records lifecycle, reload, and state transitions, not every successful poll. Errors are sanitized by the API; logs identify source and operation but do not include token/passphrase values.
 
 SIGINT and SIGTERM stop accepting requests, allow bounded HTTP shutdown, cancel collector/discovery contexts, wait for them, and close network connections. SIGHUP only reloads. The unit restarts unexpected failures.
 

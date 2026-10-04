@@ -131,6 +131,28 @@ func TestRuntimeOmitsDisabledSources(t *testing.T) {
 	}
 }
 
+// TestCheckFilesUsesEveryOrderedLayer verifies app validation consumes the complete CLI configuration stack.
+func TestCheckFilesUsesEveryOrderedLayer(t *testing.T) {
+	directory := t.TempDir()
+	certificate, key := pair(t, directory, "layers", 4)
+	token := filepath.Join(directory, "token")
+	if err := os.WriteFile(token, []byte("layer-check-token-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(directory, "base.yaml")
+	overlay := filepath.Join(directory, "overlay.yaml")
+	body := "server:\n  listen: '127.0.0.1:8443'\n  certificate: '" + certificate + "'\n  private_key: '" + key + "'\nauthentication:\n  bearer_token_files: ['" + token + "']\n  allowed_clients: ['127.0.0.1']\nsources: []\n"
+	if err := os.WriteFile(base, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlay, []byte("logging:\n  level: debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckFiles([]string{base, overlay}); err != nil {
+		t.Fatalf("CheckFiles: %v", err)
+	}
+}
+
 // TestPrepareSourcesSupportsSNMPOnly verifies one SNMP source is prepared without NUT or network access.
 func TestPrepareSourcesSupportsSNMPOnly(t *testing.T) {
 	cfg := config.Config{

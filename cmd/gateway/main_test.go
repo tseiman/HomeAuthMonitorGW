@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,17 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
+// TestHelpFlagPrintsUsageAndSucceeds verifies conventional CLI help behavior.
+func TestHelpFlagPrintsUsageAndSucceeds(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "Usage of automation-gateway") || !strings.Contains(errOut.String(), "-foreground") {
+		t.Fatalf("help=%q", errOut.String())
+	}
+}
+
 // TestCheckReportsMissingConfiguration verifies that run returns failure and a validation diagnostic for a missing config path.
 func TestCheckReportsMissingConfiguration(t *testing.T) {
 	var out, errOut bytes.Buffer
@@ -33,5 +45,68 @@ func TestCheckReportsMissingConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "configuration invalid") {
 		t.Fatalf("stderr=%q", errOut.String())
+	}
+}
+
+// TestParseOptionsSupportsLayeredConfigsAndForegroundOverrides verifies the complete operator CLI contract.
+func TestParseOptionsSupportsLayeredConfigsAndForegroundOverrides(t *testing.T) {
+	var diagnostics bytes.Buffer
+	options, err := parseOptions([]string{"--config", "/base.yaml", "--config=/site.yaml", "--foreground", "--log-level", "debug", "--check"}, &diagnostics)
+	if err != nil {
+		t.Fatalf("parseOptions: %v diagnostics=%q", err, diagnostics.String())
+	}
+	if len(options.configPaths) != 2 || options.configPaths[0] != "/base.yaml" || options.configPaths[1] != "/site.yaml" {
+		t.Fatalf("config paths=%q", options.configPaths)
+	}
+	if !options.foreground || !options.check || options.logLevel != "debug" {
+		t.Fatalf("options=%+v", options)
+	}
+}
+
+// TestParseOptionsUsesProductionDefaults verifies no-argument startup remains systemd-ready.
+func TestParseOptionsUsesProductionDefaults(t *testing.T) {
+	options, err := parseOptions(nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.configPaths) != 1 || options.configPaths[0] != "/etc/automation-gateway/config.yaml" || options.foreground || options.logLevel != "" {
+		t.Fatalf("defaults=%+v", options)
+	}
+}
+
+// TestParseOptionsRejectsInvalidLogLevelAndEmptyConfig verifies ambiguous operator input fails before startup.
+func TestParseOptionsRejectsInvalidLogLevelAndEmptyConfig(t *testing.T) {
+	for _, args := range [][]string{{"--log-level", "verbose"}, {"--config", ""}, {"positional"}} {
+		if _, err := parseOptions(args, &bytes.Buffer{}); err == nil {
+			t.Fatalf("accepted args %q", args)
+		}
+	}
+	var tooMany []string
+	for index := 0; index < 33; index++ {
+		tooMany = append(tooMany, "--config", fmt.Sprintf("/%d.yaml", index))
+	}
+	if _, err := parseOptions(tooMany, &bytes.Buffer{}); err == nil {
+		t.Fatal("accepted more than 32 configuration layers")
+	}
+}
+
+// TestNewLoggerSelectsForegroundTextAndLevelOverride verifies interactive formatting and filtering.
+func TestNewLoggerSelectsForegroundTextAndLevelOverride(t *testing.T) {
+	var output bytes.Buffer
+	logger := newLogger(&output, true, "info", "warn")
+	logger.Info("hidden")
+	logger.Warn("visible", "source", "test")
+	text := output.String()
+	if strings.Contains(text, "hidden") || !strings.Contains(text, "level=WARN") || !strings.Contains(text, "msg=visible") || strings.HasPrefix(strings.TrimSpace(text), "{") {
+		t.Fatalf("foreground log=%q", text)
+	}
+}
+
+// TestNewLoggerUsesJSONByDefault verifies journald-facing output remains structured JSON.
+func TestNewLoggerUsesJSONByDefault(t *testing.T) {
+	var output bytes.Buffer
+	newLogger(&output, false, "debug", "").Debug("visible")
+	if text := strings.TrimSpace(output.String()); !strings.HasPrefix(text, "{") || !strings.Contains(text, `"level":"DEBUG"`) {
+		t.Fatalf("JSON log=%q", text)
 	}
 }

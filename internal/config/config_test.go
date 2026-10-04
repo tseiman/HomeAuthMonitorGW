@@ -336,3 +336,71 @@ func TestReadSecretRejectsUnsafeFilesAndContent(t *testing.T) {
 		t.Fatal("non-regular secret accepted")
 	}
 }
+
+// TestLoadFilesDeepMergesMappingsAndReplacesLists verifies ordered configuration layering.
+func TestLoadFilesDeepMergesMappingsAndReplacesLists(t *testing.T) {
+	directory := t.TempDir()
+	token := writeSecret(t, directory, "token", "layered-token-value")
+	basePath := filepath.Join(directory, "base.yaml")
+	overlayPath := filepath.Join(directory, "site.yaml")
+	base := baseYAML([]string{token}, []string{"127.0.0.1"}) + `
+sources:
+  - name: base-ups
+    driver: nut
+    poll_interval: 10s
+    stale_after: 20s
+    timeout: 2s
+    nut:
+      server: 127.0.0.1:3493
+      ups: base
+logging:
+  level: info
+`
+	overlay := `authentication:
+  allowed_clients:
+    - "2001:db8::/64"
+sources:
+  - name: site-ups
+    driver: nut
+    poll_interval: 15s
+    stale_after: 30s
+    timeout: 3s
+    nut:
+      server: "127.0.0.1:3493"
+      ups: site
+logging:
+  level: debug
+`
+	if err := os.WriteFile(basePath, []byte(base), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadFiles([]string{basePath, overlayPath}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Logging.Level != "debug" || len(loaded.Sources) != 1 || loaded.Sources[0].Name != "site-ups" {
+		t.Fatalf("merged config=%+v", loaded)
+	}
+	if len(loaded.Secrets.BearerTokens) != 1 || len(loaded.Secrets.AllowedClients) != 1 || loaded.Secrets.AllowedClients[0] != netip.MustParsePrefix("2001:db8::/64") {
+		t.Fatalf("merged secrets=%+v", loaded.Secrets)
+	}
+}
+
+// TestLoadFilesRejectsUnknownOverlayFields verifies layering cannot bypass strict decoding.
+func TestLoadFilesRejectsUnknownOverlayFields(t *testing.T) {
+	directory := t.TempDir()
+	basePath := filepath.Join(directory, "base.yaml")
+	overlayPath := filepath.Join(directory, "site.yaml")
+	if err := os.WriteFile(basePath, []byte(baseYAML([]string{"/token"}, []string{"127.0.0.1"})), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlayPath, []byte("logging:\n  typo_level: debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFiles([]string{basePath, overlayPath}, false); err == nil || !strings.Contains(err.Error(), "typo_level") {
+		t.Fatalf("strict overlay error=%v", err)
+	}
+}

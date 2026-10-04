@@ -59,7 +59,7 @@ type RuntimeView struct {
 
 // Runtime owns the active generation and collector workers.
 type Runtime struct {
-	path   string
+	paths  []string
 	logger *slog.Logger
 	active atomic.Pointer[generation]
 	mu     sync.Mutex
@@ -69,17 +69,28 @@ type Runtime struct {
 
 // Check prepares the configuration at path without starting collectors and returns any validation or referenced-file error.
 func Check(path string) error {
-	_, err := prepare(path)
+	return CheckFiles([]string{path})
+
+}
+
+// CheckFiles prepares the ordered configuration stack without starting collectors.
+func CheckFiles(paths []string) error {
+	_, err := prepare(paths)
 	return err
 }
 
 // New prepares path, creates a runtime, atomically publishes its first generation, and starts active collectors.
 func New(path string, logger *slog.Logger) (*Runtime, error) {
-	cand, err := prepare(path)
+	return NewFiles([]string{path}, logger)
+}
+
+// NewFiles prepares ordered configuration layers and starts one runtime from their merged result.
+func NewFiles(paths []string, logger *slog.Logger) (*Runtime, error) {
+	cand, err := prepare(paths)
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{path: path, logger: logger}
+	runtime := &Runtime{paths: append([]string(nil), paths...), logger: logger}
 	active := buildGeneration(cand.cfg, cand.cert, cand.specs, nil)
 	runtime.active.Store(active)
 	runtime.start(cand.specs, active.store)
@@ -87,8 +98,8 @@ func New(path string, logger *slog.Logger) (*Runtime, error) {
 }
 
 // prepare loads path and builds a complete inactive candidate before active runtime state can change.
-func prepare(path string) (candidate, error) {
-	cfg, err := config.Load(path, true)
+func prepare(paths []string) (candidate, error) {
+	cfg, err := config.LoadFiles(paths, true)
 	if err != nil {
 		return candidate{}, err
 	}
@@ -178,7 +189,7 @@ func buildGeneration(cfg config.Config, cert *tls.Certificate, specs []sourceSpe
 
 // Reload prepares and atomically commits one complete cache, config, and authorization generation.
 func (r *Runtime) Reload() error {
-	cand, err := prepare(r.path)
+	cand, err := prepare(r.paths)
 	if err != nil {
 		return err
 	}

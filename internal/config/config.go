@@ -236,19 +236,48 @@ func validateMappingKeys(node *yaml.Node, path string, allowed map[string]struct
 
 // Load decodes and validates path, optionally loads referenced secrets, and returns a fully defaulted Config.
 func Load(path string, readSecrets bool) (Config, error) {
-	data, err := os.ReadFile(path)
+	return LoadFiles([]string{path}, readSecrets)
+}
+
+// LoadFiles deep-merges ordered YAML mappings, replaces lists and scalars with later values, and loads one validated Config.
+func LoadFiles(paths []string, readSecrets bool) (Config, error) {
+	if len(paths) == 0 {
+		return Config{}, errors.New("at least one configuration file is required")
+	}
+	var merged *yaml.Node
+	for _, path := range paths {
+		if path == "" {
+			return Config{}, errors.New("configuration path must not be empty")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("read config %q: %w", path, err)
+		}
+		root, err := decodeYAMLDocument(data)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+		}
+		if root.Kind != yaml.MappingNode {
+			return Config{}, fmt.Errorf("parse config %q: document root must be a mapping", path)
+		}
+		if err := rejectDuplicateYAMLKeys(root, "root"); err != nil {
+			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+		}
+		if merged == nil {
+			merged = cloneYAMLNode(root)
+		} else {
+			merged = mergeYAMLNodes(merged, root)
+		}
+	}
+	data, err := yaml.Marshal(merged)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
+		return Config{}, fmt.Errorf("encode merged config: %w", err)
 	}
 	var c Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
-	}
-	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return Config{}, errors.New("parse config: multiple YAML documents are not allowed")
+		return Config{}, fmt.Errorf("parse merged config: %w", err)
 	}
 	c.defaults()
 	if err := c.Validate(); err != nil {
@@ -260,6 +289,84 @@ func Load(path string, readSecrets bool) (Config, error) {
 		}
 	}
 	return c, nil
+}
+
+// decodeYAMLDocument decodes exactly one non-empty YAML document.
+func decodeYAMLDocument(data []byte) (*yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return nil, err
+	}
+	if len(document.Content) != 1 {
+		return nil, errors.New("empty YAML document")
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple YAML documents are not allowed")
+		}
+		return nil, err
+	}
+	return document.Content[0], nil
+}
+
+// rejectDuplicateYAMLKeys rejects ambiguous mapping keys recursively before overlays are merged.
+func rejectDuplicateYAMLKeys(node *yaml.Node, path string) error {
+	if node.Kind == yaml.MappingNode {
+		seen := make(map[string]struct{}, len(node.Content)/2)
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key := node.Content[index].Value
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("%s: duplicate field %q", path, key)
+			}
+			seen[key] = struct{}{}
+			if err := rejectDuplicateYAMLKeys(node.Content[index+1], path+"."+key); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, child := range node.Content {
+		if err := rejectDuplicateYAMLKeys(child, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cloneYAMLNode returns a detached recursive copy of node.
+func cloneYAMLNode(node *yaml.Node) *yaml.Node {
+	clone := *node
+	clone.Content = make([]*yaml.Node, len(node.Content))
+	for index, child := range node.Content {
+		clone.Content[index] = cloneYAMLNode(child)
+	}
+	return &clone
+}
+
+// mergeYAMLNodes recursively overlays mappings and replaces every other node with the later value.
+func mergeYAMLNodes(base, overlay *yaml.Node) *yaml.Node {
+	if base.Kind != yaml.MappingNode || overlay.Kind != yaml.MappingNode {
+		return cloneYAMLNode(overlay)
+	}
+	merged := cloneYAMLNode(base)
+	for index := 0; index+1 < len(overlay.Content); index += 2 {
+		key, value := overlay.Content[index], overlay.Content[index+1]
+		matched := false
+		for existing := 0; existing+1 < len(merged.Content); existing += 2 {
+			if merged.Content[existing].Value != key.Value {
+				continue
+			}
+			merged.Content[existing+1] = mergeYAMLNodes(merged.Content[existing+1], value)
+			matched = true
+			break
+		}
+		if !matched {
+			merged.Content = append(merged.Content, cloneYAMLNode(key), cloneYAMLNode(value))
+		}
+	}
+	return merged
 }
 
 // loadSecrets securely loads all active authentication and per-source credentials into c.
