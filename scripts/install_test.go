@@ -113,6 +113,37 @@ func TestInstallAndUpdateLifecycle(t *testing.T) {
 	assertFileEquals(t, config, customConfig)
 }
 
+// TestRootInvocationBuildsWithoutVerification proves an appliance-style root install builds local sources without running optional verification.
+func TestRootInvocationBuildsWithoutVerification(t *testing.T) {
+	projectRoot := projectRoot(t)
+	testRoot := t.TempDir()
+	fakeBinDir := filepath.Join(t.TempDir(), "bin")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	mustMkdirAll(t, fakeBinDir)
+	mustMkdirAll(t, stateDir)
+	writeFakeSystemTools(t, fakeBinDir)
+	writeFakeRootBuildTools(t, fakeBinDir)
+	mustWriteFile(t, filepath.Join(testRoot, ".homeauth-install-test-root"), "isolated installer test root\n", 0o600)
+	candidate := writeCandidate(t, t.TempDir(), "root-build")
+
+	cmd := exec.Command("bash", filepath.Join(projectRoot, "scripts/install.sh"))
+	cmd.Env = append(os.Environ(),
+		"HOMEAUTH_INSTALL_TESTING=1",
+		"HOMEAUTH_INSTALL_TEST_ROOT="+testRoot,
+		"HOMEAUTH_INSTALL_TEST_STATE="+stateDir,
+		"HOMEAUTH_INSTALL_TEST_CANDIDATE="+candidate,
+		"PATH="+fakeBinDir+":"+os.Getenv("PATH"),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("root build installer failed: %v\n%s", err, output)
+	}
+	assertContains(t, filepath.Join(testRoot, "usr/local/sbin/automation-gateway"), "VERSION=root-build")
+	if _, err := os.Stat(filepath.Join(stateDir, "root-tests-executed")); !os.IsNotExist(err) {
+		t.Fatalf("root invocation executed optional verification: %v\n%s", err, output)
+	}
+}
+
 // TestInstallerRejectsConfigurationSymlink proves a site file cannot redirect a privileged write.
 func TestInstallerRejectsConfigurationSymlink(t *testing.T) {
 	projectRoot := projectRoot(t)
@@ -223,6 +254,61 @@ printf '%s\n' "verify $2" >> "${HOMEAUTH_INSTALL_TEST_STATE:?}/analyze.log"
 `
 	mustWriteFile(t, filepath.Join(directory, "systemctl"), systemctl, 0o755)
 	mustWriteFile(t, filepath.Join(directory, "systemd-analyze"), analyze, 0o755)
+}
+
+// writeFakeRootBuildTools creates root identity, clean Git, and non-executing Go build stand-ins.
+func writeFakeRootBuildTools(t *testing.T, directory string) {
+	t.Helper()
+	idTool := `#!/bin/sh
+set -eu
+[ "$1" = -u ]
+printf '%s\n' 0
+`
+	gitTool := `#!/bin/sh
+set -eu
+case " $* " in
+    *" status --porcelain "*) exit 0 ;;
+    *" describe "*) printf '%s\n' vroot-test ;;
+    *" rev-parse HEAD "*) printf '%040d\n' 0 ;;
+    *" show -s --format=%cI HEAD "*) printf '%s\n' 2026-10-04T00:00:00+00:00 ;;
+    *) exit 64 ;;
+esac
+`
+	goTool := `#!/bin/sh
+set -eu
+state=${HOMEAUTH_INSTALL_TEST_STATE:?}
+case "$1" in
+    env)
+        [ "$2" = GOVERSION ]
+        printf '%s\n' go1.23.0
+        ;;
+    mod)
+        [ "$2" = download ]
+        ;;
+    test|vet)
+        : > "$state/root-tests-executed"
+        exit 91
+        ;;
+    build)
+        output=
+        shift
+        while [ "$#" -gt 0 ]; do
+            if [ "$1" = -o ]; then
+                output=$2
+                shift 2
+            else
+                shift
+            fi
+        done
+        [ -n "$output" ]
+        cp -- "${HOMEAUTH_INSTALL_TEST_CANDIDATE:?}" "$output"
+        ;;
+    *) exit 64 ;;
+esac
+`
+	mustWriteFile(t, filepath.Join(directory, "id"), idTool, 0o755)
+	mustWriteFile(t, filepath.Join(directory, "git"), gitTool, 0o755)
+	mustWriteFile(t, filepath.Join(directory, "go"), goTool, 0o755)
 }
 
 // mustCopyFile copies a regular test artifact while preserving explicit test control over rollback.

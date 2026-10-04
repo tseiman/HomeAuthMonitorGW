@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -21,6 +22,7 @@ import (
 // Options controls static API metadata.
 type Options struct {
 	Version string
+	Logger  *slog.Logger
 }
 
 // View is one coherent cache and authorization-policy generation.
@@ -43,7 +45,54 @@ type API struct {
 // New returns a cache-only HTTP handler that obtains one current runtime generation per request.
 func New(view ViewProvider, options Options) http.Handler {
 	api := &API{view: view, options: options}
-	return http.HandlerFunc(api.serve)
+	handler := http.Handler(http.HandlerFunc(api.serve))
+	if options.Logger != nil {
+		handler = accessLogger(options.Logger, handler)
+	}
+	return handler
+}
+
+type responseStatus struct {
+	http.ResponseWriter
+	status int
+}
+
+// WriteHeader records the first response status before forwarding it.
+func (w *responseStatus) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// Write records an implicit success status before forwarding the body.
+func (w *responseStatus) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+// Unwrap exposes the underlying writer to standard HTTP response controllers.
+func (w *responseStatus) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// accessLogger records request metadata without headers, credentials, query strings, or response bodies.
+func accessLogger(logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		tracked := &responseStatus{ResponseWriter: w}
+		next.ServeHTTP(tracked, r)
+		status := tracked.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		client := r.RemoteAddr
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			client = host
+		}
+		logger.Info("http request", "method", r.Method, "path", r.URL.EscapedPath(), "status", status, "client", client, "duration", time.Since(start))
+	})
 }
 
 // serve loads one generation, enforces its client and bearer policy, and routes one read-only request.

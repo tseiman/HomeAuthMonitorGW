@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/tseiman/HomeAuthMonitorGW/internal/app"
+	"github.com/tseiman/HomeAuthMonitorGW/internal/config"
 	"github.com/tseiman/HomeAuthMonitorGW/internal/httpapi"
 )
 
@@ -61,11 +62,28 @@ func parseOptions(args []string, diagnostics io.Writer) (commandOptions, error) 
 	var paths configPaths
 	fs := flag.NewFlagSet("automation-gateway", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	fs.Usage = func() {
+		fmt.Fprint(diagnostics, `Usage: automation-gateway [options]
+
+Options:
+  --config=PATH, -C=PATH       Configuration file; repeat for ordered overlays.
+  --check, -c                  Validate configuration and referenced files, then exit.
+  --foreground, -f             Use human-readable foreground logging.
+  --log-level=LEVEL, -l=LEVEL  Override log level: debug, info, warn, or error.
+  --version, -V                Print version and exit.
+  --help, -h                   Show this help text.
+`)
+	}
 	fs.Var(&paths, "config", "configuration file; repeat for ordered overlays")
+	fs.Var(&paths, "C", "short form of --config")
 	fs.BoolVar(&options.check, "check", false, "validate configuration and referenced files, then exit")
+	fs.BoolVar(&options.check, "c", false, "short form of --check")
 	fs.BoolVar(&options.showVersion, "version", false, "print version and exit")
+	fs.BoolVar(&options.showVersion, "V", false, "short form of --version")
 	fs.BoolVar(&options.foreground, "foreground", false, "use human-readable foreground logging")
+	fs.BoolVar(&options.foreground, "f", false, "short form of --foreground")
 	fs.StringVar(&options.logLevel, "log-level", "", "override log level: debug, info, warn, or error")
+	fs.StringVar(&options.logLevel, "l", "", "short form of --log-level")
 	if err := fs.Parse(args); err != nil {
 		return commandOptions{}, err
 	}
@@ -82,26 +100,36 @@ func parseOptions(args []string, diagnostics io.Writer) (commandOptions, error) 
 	return options, nil
 }
 
+// configuredLogLevel returns the slog level represented by one validated configuration value.
+func configuredLogLevel(name string) slog.Level {
+	switch name {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// newLoggerWithLevel creates text or JSON output controlled by a fixed or dynamic level.
+func newLoggerWithLevel(output io.Writer, foreground bool, level slog.Leveler) *slog.Logger {
+	options := &slog.HandlerOptions{Level: level}
+	if foreground {
+		return slog.New(slog.NewTextHandler(output, options))
+	}
+	return slog.New(slog.NewJSONHandler(output, options))
+}
+
 // newLogger creates text output for explicit foreground use and JSON otherwise, with an optional level override.
 func newLogger(output io.Writer, foreground bool, configuredLevel, override string) *slog.Logger {
 	levelName := configuredLevel
 	if override != "" {
 		levelName = override
 	}
-	level := slog.LevelInfo
-	switch levelName {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	}
-	options := &slog.HandlerOptions{Level: level}
-	if foreground {
-		return slog.New(slog.NewTextHandler(output, options))
-	}
-	return slog.New(slog.NewJSONHandler(output, options))
+	return newLoggerWithLevel(output, foreground, configuredLogLevel(levelName))
 }
 
 // main passes process arguments and standard streams to run, then exits with the returned status code.
@@ -142,17 +170,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // serve loads configPaths, runs the HTTPS gateway using logOutput, logs reload failures without exiting, and returns any startup, serving, or graceful-shutdown error.
 func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOverride string) error {
-	bootstrap := newLogger(logOutput, foreground, "info", levelOverride)
-	runtime, err := app.NewFiles(configPaths, bootstrap)
+	loaded, err := config.LoadFiles(configPaths, true)
+	if err != nil {
+		return err
+	}
+	levelName := loaded.Logging.Level
+	if levelOverride != "" {
+		levelName = levelOverride
+	}
+	var dynamicLevel slog.LevelVar
+	dynamicLevel.Set(configuredLogLevel(levelName))
+	logger := newLoggerWithLevel(logOutput, foreground, &dynamicLevel)
+	runtime, err := app.NewFiles(configPaths, logger)
 	if err != nil {
 		return err
 	}
 	cfg := runtime.Config()
-	logger := newLogger(logOutput, foreground, cfg.Logging.Level, levelOverride)
 	handler := httpapi.New(func() httpapi.View {
 		view := runtime.View()
 		return httpapi.View{Store: view.Store, TokenDigests: view.TokenDigests, AllowedClients: view.AllowedClients, CertificateNotAfter: view.CertificateNotAfter}
-	}, httpapi.Options{Version: version})
+	}, httpapi.Options{Version: version, Logger: logger})
 	server := &http.Server{Addr: cfg.Server.Listen, Handler: handler, ReadHeaderTimeout: cfg.Server.ReadTimeout.Duration, ReadTimeout: cfg.Server.ReadTimeout.Duration, WriteTimeout: cfg.Server.WriteTimeout.Duration, IdleTimeout: cfg.Server.IdleTimeout.Duration, MaxHeaderBytes: cfg.Server.MaxHeaderBytes, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: runtime.GetCertificate}}
 	errs := make(chan error, 1)
 	go func() {
@@ -170,6 +207,9 @@ func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOver
 				if err := runtime.Reload(); err != nil {
 					logger.Error("reload failed", "error", err)
 				} else {
+					if levelOverride == "" {
+						dynamicLevel.Set(configuredLogLevel(runtime.Config().Logging.Level))
+					}
 					logger.Info("configuration and certificate reloaded")
 				}
 				continue

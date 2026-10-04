@@ -6,11 +6,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +41,31 @@ func request(method, path, authorization string) *http.Request {
 		r.Header.Set("Authorization", authorization)
 	}
 	return r
+}
+
+// TestAccessLoggerRecordsMetadataWithoutSecrets verifies normal request visibility without credential or query leakage.
+func TestAccessLoggerRecordsMetadataWithoutSecrets(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	handler := accessLogger(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	r := httptest.NewRequest(http.MethodGet, "https://gateway.example/api/v1/health?token=query-secret", nil)
+	r.RemoteAddr = "192.0.2.25:32100"
+	r.Header.Set("Authorization", "Bearer header-secret")
+	handler.ServeHTTP(httptest.NewRecorder(), r)
+
+	text := output.String()
+	for _, expected := range []string{"msg=\"http request\"", "method=GET", "path=/api/v1/health", "status=204", "client=192.0.2.25"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing %q in access log: %s", expected, text)
+		}
+	}
+	for _, secret := range []string{"query-secret", "header-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("access log leaked %q: %s", secret, text)
+		}
+	}
 }
 
 // TestBearerAuthentication verifies both tokens, case-insensitive schemes, exact credentials, and duplicate-header rejection.

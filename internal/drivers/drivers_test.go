@@ -6,8 +6,11 @@
 package drivers
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,14 +34,22 @@ func TestRunnerPollsImmediatelyAndContainsFailure(t *testing.T) {
 	store := cache.New(time.Now)
 	store.Register("source", "fake", time.Minute)
 	f := &fakeCollector{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { Run(ctx, "source", 10*time.Millisecond, f, store, nil); close(done) }()
+	go func() { Run(ctx, "source", 10*time.Millisecond, f, store, logger); close(done) }()
 	time.Sleep(25 * time.Millisecond)
 	cancel()
 	<-done
 	got, _ := store.Snapshot("source")
 	if f.calls < 2 || got.Available || !got.Stale || len(got.Metrics) != 1 {
 		t.Fatalf("calls=%d snapshot=%+v", f.calls, got)
+	}
+	text := logs.String()
+	for _, expected := range []string{"collector poll started", "collector poll succeeded", "collector poll values", "collector poll failed", "error=down"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing %q in logs:\n%s", expected, text)
+		}
 	}
 }

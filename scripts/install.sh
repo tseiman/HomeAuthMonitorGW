@@ -18,7 +18,8 @@ SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 PROJECT_ROOT="$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd -P)"
 SOURCE_BINARY=""
 FORCE_START=false
-SKIP_TESTS=false
+VERIFY=false
+VERBOSE=false
 TEST_ROOT="${HOMEAUTH_INSTALL_TEST_ROOT:-}"
 TESTING="${HOMEAUTH_INSTALL_TESTING:-0}"
 BUILD_TEMP=""
@@ -27,16 +28,17 @@ STAGE_DIR=""
 
 usage() {
     cat <<'USAGE'
-Usage: ./scripts/install.sh [--binary PATH] [--start] [--skip-tests]
+Usage: ./scripts/install.sh [--binary=PATH] [--start] [--verify] [--verbose]
 
-Without --binary, the script runs the Go tests and vet, builds a deterministic
-static binary as the invoking user, and then uses sudo only for installation.
+Without --binary, the script downloads modules and builds the current checkout,
+including local changes. Tests and vet run only when --verify is requested.
 
 Options:
-  --binary PATH  Install an already built binary instead of building locally.
+  --binary=PATH  Install an already built binary instead of building locally.
   --start        Start and enable an existing but currently inactive service.
-  --skip-tests   Skip go test and go vet before a local build.
-  --help         Show this help text.
+  --verify       Run go test and go vet before building.
+  --verbose, -v  Show verbose Go download, verification, and build progress.
+  --help, -h     Show this help text.
 USAGE
 }
 
@@ -242,7 +244,6 @@ build_binary() {
     require_command go
     require_command git
     [[ -f "$PROJECT_ROOT/go.mod" ]] || die "go.mod not found below $PROJECT_ROOT"
-    [[ -z "$(git -C "$PROJECT_ROOT" status --porcelain)" ]] || die "refusing to build from a dirty Git worktree"
 
     go_version="$(GOTOOLCHAIN=local go env GOVERSION)"
     [[ "$go_version" =~ ^go([0-9]+)\.([0-9]+)(\.|$) ]] || die "cannot parse Go version: $go_version"
@@ -260,19 +261,33 @@ build_binary() {
     [[ "$build_time" =~ ^[0-9T:+-]+$ ]] || die "invalid Git commit time"
 
     log "downloading the checksummed Go module dependencies"
-    (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local go mod download)
-    [[ -z "$(git -C "$PROJECT_ROOT" status --porcelain)" ]] || die "dependency resolution changed the Git worktree"
-    if [[ "$SKIP_TESTS" != "true" ]]; then
+    if [[ "$VERBOSE" == "true" ]]; then
+        (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local go mod download -x)
+    else
+        (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local go mod download)
+    fi
+    log "module dependencies are ready"
+    if [[ "$VERIFY" == "true" ]]; then
         log "running test and vet gates"
-        (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go test ./...)
-        (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go vet ./...)
+        if [[ "$VERBOSE" == "true" ]]; then
+            (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go test -v ./...)
+            (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go vet -v ./...)
+        else
+            (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go test ./...)
+            (cd "$PROJECT_ROOT" && GOTOOLCHAIN=local GOPROXY=off go vet ./...)
+        fi
+        log "test and vet gates passed"
     fi
 
-    [[ -z "$(git -C "$PROJECT_ROOT" status --porcelain)" ]] || die "Git worktree changed during verification"
     BUILD_TEMP="$(mktemp -- "${TMPDIR:-/tmp}/automation-gateway.build.XXXXXX")"
     ldflags="-s -w -X main.version=$version -X main.commit=$commit -X main.buildTime=$build_time"
     log "building static gateway binary for the local userspace architecture"
-    (cd "$PROJECT_ROOT" && CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off go build -trimpath -ldflags "$ldflags" -o "$BUILD_TEMP" ./cmd/gateway)
+    if [[ "$VERBOSE" == "true" ]]; then
+        (cd "$PROJECT_ROOT" && CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off go build -v -trimpath -ldflags "$ldflags" -o "$BUILD_TEMP" ./cmd/gateway)
+    else
+        (cd "$PROJECT_ROOT" && CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off go build -trimpath -ldflags "$ldflags" -o "$BUILD_TEMP" ./cmd/gateway)
+    fi
+    log "static gateway binary built"
     chmod 0755 -- "$BUILD_TEMP"
     SOURCE_BINARY="$BUILD_TEMP"
 }
@@ -493,12 +508,21 @@ while [[ $# -gt 0 ]]; do
             SOURCE_BINARY="$(readlink -f -- "$2")"
             shift 2
             ;;
+        --binary=*)
+            [[ -n "${1#*=}" ]] || die "--binary requires a path"
+            SOURCE_BINARY="$(readlink -f -- "${1#*=}")"
+            shift
+            ;;
         --start)
             FORCE_START=true
             shift
             ;;
-        --skip-tests)
-            SKIP_TESTS=true
+        --verify)
+            VERIFY=true
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE=true
             shift
             ;;
         --help|-h)
@@ -512,12 +536,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SOURCE_BINARY" ]]; then
-    if [[ "$TESTING" == "1" ]]; then
-        die "test mode requires --binary"
-    fi
-    if [[ "$(id -u)" == "0" ]]; then
-        die "run without sudo so tests and compilation are unprivileged, or pass --binary PATH"
-    fi
     build_binary
 fi
 

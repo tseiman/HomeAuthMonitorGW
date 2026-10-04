@@ -26,23 +26,26 @@ type Discoverer interface {
 	Discover(context.Context) ([]metrics.Definition, error)
 }
 
-// Run polls collector immediately and then at interval until ctx is canceled, updating store for name and logging availability transitions through logger when provided.
+// Run polls collector immediately and then at interval until ctx is canceled, updating store and logging every outcome when logger is provided.
 func Run(ctx context.Context, name string, interval time.Duration, collector Collector, store *cache.Store, logger *slog.Logger) {
 	poll := func() {
+		if logger != nil {
+			logger.Debug("collector poll started", "source", name)
+		}
 		start := time.Now()
 		values, err := collector.Poll(ctx)
 		duration := time.Since(start)
-		before, _ := store.Snapshot(name)
 		if err != nil {
 			// A failed poll changes availability but leaves the cached last-known-good metrics intact.
 			store.Failure(name, err, duration)
-			if logger != nil && before.Available {
-				logger.Warn("collector unavailable", "source", name)
+			if logger != nil {
+				logger.Error("collector poll failed", "source", name, "duration", duration, "error", err)
 			}
 		} else {
 			store.Success(name, values, duration)
-			if logger != nil && !before.Available {
-				logger.Info("collector recovered", "source", name)
+			if logger != nil {
+				logger.Info("collector poll succeeded", "source", name, "metrics", len(values), "duration", duration)
+				logger.Debug("collector poll values", "source", name, "values", values)
 			}
 		}
 	}

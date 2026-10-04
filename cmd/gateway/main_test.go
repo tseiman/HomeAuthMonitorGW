@@ -32,7 +32,7 @@ func TestHelpFlagPrintsUsageAndSucceeds(t *testing.T) {
 	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errOut.String())
 	}
-	if !strings.Contains(errOut.String(), "Usage of automation-gateway") || !strings.Contains(errOut.String(), "-foreground") {
+	if !strings.Contains(errOut.String(), "Usage: automation-gateway") || !strings.Contains(errOut.String(), "--foreground, -f") {
 		t.Fatalf("help=%q", errOut.String())
 	}
 }
@@ -51,7 +51,7 @@ func TestCheckReportsMissingConfiguration(t *testing.T) {
 // TestParseOptionsSupportsLayeredConfigsAndForegroundOverrides verifies the complete operator CLI contract.
 func TestParseOptionsSupportsLayeredConfigsAndForegroundOverrides(t *testing.T) {
 	var diagnostics bytes.Buffer
-	options, err := parseOptions([]string{"--config", "/base.yaml", "--config=/site.yaml", "--foreground", "--log-level", "debug", "--check"}, &diagnostics)
+	options, err := parseOptions([]string{"--config=/base.yaml", "-C=/site.yaml", "-f", "-l=debug", "-c"}, &diagnostics)
 	if err != nil {
 		t.Fatalf("parseOptions: %v diagnostics=%q", err, diagnostics.String())
 	}
