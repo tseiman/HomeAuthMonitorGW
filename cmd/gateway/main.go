@@ -83,8 +83,11 @@ func serve(configPath string, logOutput io.Writer) error {
 		level = slog.LevelError
 	}
 	logger := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: level}))
-	handler := httpapi.New(runtime.Store, runtime.Token, httpapi.Options{Version: version, HealthPublic: cfg.Authentication.HealthPublic, CertificateNotAfter: runtime.TLS.NotAfter})
-	server := &http.Server{Addr: cfg.Server.Listen, Handler: handler, ReadHeaderTimeout: cfg.Server.ReadTimeout.Duration, ReadTimeout: cfg.Server.ReadTimeout.Duration, WriteTimeout: cfg.Server.WriteTimeout.Duration, IdleTimeout: cfg.Server.IdleTimeout.Duration, MaxHeaderBytes: cfg.Server.MaxHeaderBytes, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: runtime.TLS.GetCertificate}}
+	handler := httpapi.New(func() httpapi.View {
+		view := runtime.View()
+		return httpapi.View{Store: view.Store, TokenDigests: view.TokenDigests, AllowedClients: view.AllowedClients, CertificateNotAfter: view.CertificateNotAfter}
+	}, httpapi.Options{Version: version})
+	server := &http.Server{Addr: cfg.Server.Listen, Handler: handler, ReadHeaderTimeout: cfg.Server.ReadTimeout.Duration, ReadTimeout: cfg.Server.ReadTimeout.Duration, WriteTimeout: cfg.Server.WriteTimeout.Duration, IdleTimeout: cfg.Server.IdleTimeout.Duration, MaxHeaderBytes: cfg.Server.MaxHeaderBytes, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: runtime.GetCertificate}}
 	errs := make(chan error, 1)
 	go func() {
 		logger.Info("gateway starting", "version", version, "listen", cfg.Server.Listen)

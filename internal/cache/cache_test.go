@@ -73,3 +73,22 @@ func TestDiscoveryEnumMapsAreCopies(t *testing.T) {
 		t.Fatalf("snapshot aliases cached enum: %+v", second.Discovery)
 	}
 }
+
+// TestRestoreAcceptsOnlyCompatibleDetachedSnapshots verifies generation handoff and mutation isolation.
+func TestRestoreAcceptsOnlyCompatibleDetachedSnapshots(t *testing.T) {
+	store := New(time.Now)
+	store.Register("same", "nut", time.Minute)
+	snapshot := Snapshot{Name: "same", Driver: "nut", Available: true, Metrics: []metrics.Metric{{Name: "charge", Labels: map[string]string{"unit": "percent"}}}}
+	if !store.Restore("same", snapshot) {
+		t.Fatal("compatible snapshot rejected")
+	}
+	snapshot.Metrics[0].Labels["unit"] = "changed"
+	got, _ := store.Snapshot("same")
+	if got.Metrics[0].Labels["unit"] != "percent" {
+		t.Fatal("restored snapshot aliases caller data")
+	}
+	store.Register("changed-driver", "snmp", time.Minute)
+	if store.Restore("changed-driver", Snapshot{Name: "changed-driver", Driver: "nut"}) {
+		t.Fatal("incompatible driver accepted")
+	}
+}

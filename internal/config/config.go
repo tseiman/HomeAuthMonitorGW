@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -19,6 +20,11 @@ import (
 	"unicode"
 
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	maxBearerTokenFiles = 32
+	maxAllowedClients   = 128
 )
 
 // Duration wraps time.Duration with YAML text decoding.
@@ -38,11 +44,11 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// Config contains validated gateway server, authentication, collector, logging, and loaded secret settings.
+// Config contains validated server, authentication, source, logging, and loaded secret settings.
 type Config struct {
 	Server         Server         `yaml:"server"`
 	Authentication Authentication `yaml:"authentication"`
-	Collectors     Collectors     `yaml:"collectors"`
+	Sources        []Source       `yaml:"sources"`
 	Logging        Logging        `yaml:"logging"`
 	Secrets        Secrets        `yaml:"-"`
 }
@@ -59,10 +65,10 @@ type Server struct {
 	MaxHeaderBytes  int      `yaml:"max_header_bytes"`
 }
 
-// Authentication configures bearer-token storage and health-route visibility.
+// Authentication names protected bearer-token files and permitted client addresses or networks.
 type Authentication struct {
-	BearerTokenFile string `yaml:"bearer_token_file"`
-	HealthPublic    bool   `yaml:"health_public"`
+	BearerTokenFiles []string `yaml:"bearer_token_files"`
+	AllowedClients   []string `yaml:"allowed_clients"`
 }
 
 // Logging selects the structured log level.
@@ -70,38 +76,36 @@ type Logging struct {
 	Level string `yaml:"level"`
 }
 
-// Collectors groups protocol-specific collector settings.
-type Collectors struct {
-	NUT  NUT  `yaml:"nut"`
-	WAGO WAGO `yaml:"wago"`
+// Source configures one independently named, optionally disabled collector instance.
+type Source struct {
+	Name         string      `yaml:"name"`
+	Driver       string      `yaml:"driver"`
+	Enabled      bool        `yaml:"enabled"`
+	PollInterval Duration    `yaml:"poll_interval"`
+	StaleAfter   Duration    `yaml:"stale_after"`
+	Timeout      Duration    `yaml:"timeout"`
+	NUT          *NUTSource  `yaml:"nut,omitempty"`
+	SNMP         *SNMPSource `yaml:"snmp,omitempty"`
 }
 
-// NUT configures the Network UPS Tools collector.
-type NUT struct {
-	Enabled      bool     `yaml:"enabled"`
-	Server       string   `yaml:"server"`
-	UPS          string   `yaml:"ups"`
-	PollInterval Duration `yaml:"poll_interval"`
-	StaleAfter   Duration `yaml:"stale_after"`
-	Timeout      Duration `yaml:"timeout"`
+// NUTSource contains Network UPS Tools endpoint and UPS selection settings.
+type NUTSource struct {
+	Server string `yaml:"server"`
+	UPS    string `yaml:"ups"`
 }
 
-// WAGO configures fixed polling and optional discovery for the SNMP collector.
-type WAGO struct {
-	Enabled      bool      `yaml:"enabled"`
-	Address      string    `yaml:"address"`
-	Port         uint16    `yaml:"port"`
-	PollInterval Duration  `yaml:"poll_interval"`
-	StaleAfter   Duration  `yaml:"stale_after"`
-	Timeout      Duration  `yaml:"timeout"`
-	OIDs         []string  `yaml:"oids"`
-	SNMP         SNMP      `yaml:"snmp"`
-	Discovery    Discovery `yaml:"discovery"`
-	MetadataFile string    `yaml:"metadata_file"`
+// SNMPSource contains fixed polling, metadata, security, and bounded discovery settings.
+type SNMPSource struct {
+	Address      string       `yaml:"address"`
+	Port         uint16       `yaml:"port"`
+	OIDs         []string     `yaml:"oids"`
+	Security     SNMPSecurity `yaml:"security"`
+	Discovery    Discovery    `yaml:"discovery"`
+	MetadataFile string       `yaml:"metadata_file"`
 }
 
-// SNMP contains the constrained SNMPv3 security settings and secret-file paths.
-type SNMP struct {
+// SNMPSecurity contains the constrained SNMPv3 security settings and secret-file paths.
+type SNMPSecurity struct {
 	Version               string `yaml:"version"`
 	Username              string `yaml:"username"`
 	AuthProtocol          string `yaml:"auth_protocol"`
@@ -110,7 +114,7 @@ type SNMP struct {
 	PrivacyPassphraseFile string `yaml:"privacy_passphrase_file"`
 }
 
-// Discovery controls optional SNMP root walks.
+// Discovery controls optional, bounded SNMP root walks.
 type Discovery struct {
 	Enabled    bool     `yaml:"enabled"`
 	RootOIDs   []string `yaml:"root_oids"`
@@ -118,14 +122,119 @@ type Discovery struct {
 	Timeout    Duration `yaml:"timeout"`
 }
 
-// Secrets holds credential values loaded from protected files and excluded from YAML decoding.
-type Secrets struct {
-	BearerToken        string
+// SourceSecrets contains credentials loaded for one active source.
+type SourceSecrets struct {
 	SNMPAuthPassphrase string
 	SNMPPrivPassphrase string
 }
 
-// Load decodes and validates the YAML file at path, optionally loads referenced secrets, and returns a fully defaulted Config or a contextual error.
+// Secrets holds values derived from protected files and validated client prefixes, excluded from YAML decoding.
+type Secrets struct {
+	BearerTokens   []string
+	AllowedClients []netip.Prefix
+	Sources        map[string]SourceSecrets
+}
+
+// UnmarshalYAML defaults an omitted enabled flag to true and makes disabled sources semantically inert.
+func (s *Source) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return errors.New("source must be a mapping")
+	}
+	if err := validateSourceKeys(node); err != nil {
+		return err
+	}
+	enabled := true
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "enabled" {
+			if node.Content[i+1].Kind != yaml.ScalarNode || node.Content[i+1].Tag != "!!bool" {
+				return errors.New("source enabled must be a boolean")
+			}
+			if err := node.Content[i+1].Decode(&enabled); err != nil {
+				return fmt.Errorf("source enabled: %w", err)
+			}
+		}
+	}
+	if !enabled {
+		*s = Source{Enabled: false}
+		return nil
+	}
+	type decodedSource Source
+	var decoded decodedSource
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*s = Source(decoded)
+	s.Enabled = true
+	return nil
+}
+
+// validateSourceKeys rejects unknown source and nested driver keys even when a source is disabled.
+func validateSourceKeys(node *yaml.Node) error {
+	allowed := map[string]map[string]struct{}{
+		"source":    keys("name", "driver", "enabled", "poll_interval", "stale_after", "timeout", "nut", "snmp"),
+		"nut":       keys("server", "ups"),
+		"snmp":      keys("address", "port", "oids", "security", "discovery", "metadata_file"),
+		"security":  keys("version", "username", "auth_protocol", "auth_passphrase_file", "privacy_protocol", "privacy_passphrase_file"),
+		"discovery": keys("enabled", "root_oids", "max_objects", "timeout"),
+	}
+	if err := validateMappingKeys(node, "source", allowed["source"]); err != nil {
+		return err
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		name, value := node.Content[i].Value, node.Content[i+1]
+		switch name {
+		case "nut":
+			if value.Kind == yaml.MappingNode {
+				if err := validateMappingKeys(value, "nut", allowed["nut"]); err != nil {
+					return err
+				}
+			}
+		case "snmp":
+			if value.Kind != yaml.MappingNode {
+				continue
+			}
+			if err := validateMappingKeys(value, "snmp", allowed["snmp"]); err != nil {
+				return err
+			}
+			for j := 0; j+1 < len(value.Content); j += 2 {
+				nestedName, nested := value.Content[j].Value, value.Content[j+1]
+				if (nestedName == "security" || nestedName == "discovery") && nested.Kind == yaml.MappingNode {
+					if err := validateMappingKeys(nested, nestedName, allowed[nestedName]); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// keys constructs a membership set for strict YAML-key validation.
+func keys(values ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
+}
+
+// validateMappingKeys rejects keys outside allowed in a YAML mapping node.
+func validateMappingKeys(node *yaml.Node, path string, allowed map[string]struct{}) error {
+	seen := make(map[string]struct{}, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("%s: field %q not found", path, key)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("%s: duplicate field %q", path, key)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// Load decodes and validates path, optionally loads referenced secrets, and returns a fully defaulted Config.
 func Load(path string, readSecrets bool) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -146,31 +255,62 @@ func Load(path string, readSecrets bool) (Config, error) {
 		return Config{}, err
 	}
 	if readSecrets {
-		if c.Secrets.BearerToken, err = readSecret(c.Authentication.BearerTokenFile); err != nil {
-			return Config{}, fmt.Errorf("bearer token: %w", err)
-		}
-		if err := validateSecret(c.Secrets.BearerToken, 16, 4096, true); err != nil {
-			return Config{}, fmt.Errorf("bearer token: %w", err)
-		}
-		if c.Collectors.WAGO.Enabled {
-			if c.Secrets.SNMPAuthPassphrase, err = readSecret(c.Collectors.WAGO.SNMP.AuthPassphraseFile); err != nil {
-				return Config{}, fmt.Errorf("SNMP auth passphrase: %w", err)
-			}
-			if err := validateSecret(c.Secrets.SNMPAuthPassphrase, 8, 255, false); err != nil {
-				return Config{}, fmt.Errorf("SNMP auth passphrase: %w", err)
-			}
-			if c.Secrets.SNMPPrivPassphrase, err = readSecret(c.Collectors.WAGO.SNMP.PrivacyPassphraseFile); err != nil {
-				return Config{}, fmt.Errorf("SNMP privacy passphrase: %w", err)
-			}
-			if err := validateSecret(c.Secrets.SNMPPrivPassphrase, 8, 255, false); err != nil {
-				return Config{}, fmt.Errorf("SNMP privacy passphrase: %w", err)
-			}
+		if err := c.loadSecrets(); err != nil {
+			return Config{}, err
 		}
 	}
 	return c, nil
 }
 
-// defaults fills zero-valued optional settings in c with operational defaults and has no return value.
+// loadSecrets securely loads all active authentication and per-source credentials into c.
+func (c *Config) loadSecrets() error {
+	c.Secrets = Secrets{Sources: make(map[string]SourceSecrets)}
+	seenTokens := make(map[string]struct{}, len(c.Authentication.BearerTokenFiles))
+	for _, path := range c.Authentication.BearerTokenFiles {
+		value, err := readSecret(path)
+		if err != nil {
+			return fmt.Errorf("bearer token %q: %w", path, err)
+		}
+		if err := validateSecret(value, 16, 4096, true); err != nil {
+			return fmt.Errorf("bearer token %q: %w", path, err)
+		}
+		if _, duplicate := seenTokens[value]; duplicate {
+			return errors.New("duplicate bearer token")
+		}
+		seenTokens[value] = struct{}{}
+		c.Secrets.BearerTokens = append(c.Secrets.BearerTokens, value)
+	}
+	for _, value := range c.Authentication.AllowedClients {
+		prefix, err := parseClientPrefix(value)
+		if err != nil {
+			return fmt.Errorf("authentication.allowed_clients: %w", err)
+		}
+		c.Secrets.AllowedClients = append(c.Secrets.AllowedClients, prefix)
+	}
+	for _, source := range c.Sources {
+		if !source.Enabled || source.Driver != "snmp" {
+			continue
+		}
+		auth, err := readSecret(source.SNMP.Security.AuthPassphraseFile)
+		if err != nil {
+			return fmt.Errorf("source %q SNMP auth passphrase: %w", source.Name, err)
+		}
+		if err := validateSecret(auth, 8, 255, false); err != nil {
+			return fmt.Errorf("source %q SNMP auth passphrase: %w", source.Name, err)
+		}
+		privacy, err := readSecret(source.SNMP.Security.PrivacyPassphraseFile)
+		if err != nil {
+			return fmt.Errorf("source %q SNMP privacy passphrase: %w", source.Name, err)
+		}
+		if err := validateSecret(privacy, 8, 255, false); err != nil {
+			return fmt.Errorf("source %q SNMP privacy passphrase: %w", source.Name, err)
+		}
+		c.Secrets.Sources[source.Name] = SourceSecrets{SNMPAuthPassphrase: auth, SNMPPrivPassphrase: privacy}
+	}
+	return nil
+}
+
+// defaults fills omitted optional settings with operational defaults, skipping disabled sources completely.
 func (c *Config) defaults() {
 	if !c.Server.ReadTimeout.set && c.Server.ReadTimeout.Duration == 0 {
 		c.Server.ReadTimeout.Duration = 10 * time.Second
@@ -190,24 +330,29 @@ func (c *Config) defaults() {
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
 	}
-	if !c.Collectors.NUT.Timeout.set && c.Collectors.NUT.Timeout.Duration == 0 {
-		c.Collectors.NUT.Timeout.Duration = 5 * time.Second
-	}
-	if !c.Collectors.WAGO.Timeout.set && c.Collectors.WAGO.Timeout.Duration == 0 {
-		c.Collectors.WAGO.Timeout.Duration = 5 * time.Second
-	}
-	if c.Collectors.WAGO.Port == 0 {
-		c.Collectors.WAGO.Port = 161
-	}
-	if c.Collectors.WAGO.Discovery.MaxObjects == 0 {
-		c.Collectors.WAGO.Discovery.MaxObjects = 2048
-	}
-	if !c.Collectors.WAGO.Discovery.Timeout.set && c.Collectors.WAGO.Discovery.Timeout.Duration == 0 {
-		c.Collectors.WAGO.Discovery.Timeout.Duration = 2 * time.Minute
+	for i := range c.Sources {
+		source := &c.Sources[i]
+		if !source.Enabled {
+			continue
+		}
+		if !source.Timeout.set && source.Timeout.Duration == 0 {
+			source.Timeout.Duration = 5 * time.Second
+		}
+		if source.SNMP != nil {
+			if source.SNMP.Port == 0 {
+				source.SNMP.Port = 161
+			}
+			if source.SNMP.Discovery.MaxObjects == 0 {
+				source.SNMP.Discovery.MaxObjects = 2048
+			}
+			if !source.SNMP.Discovery.Timeout.set && source.SNMP.Discovery.Timeout.Duration == 0 {
+				source.SNMP.Discovery.Timeout.Duration = 2 * time.Minute
+			}
+		}
 	}
 }
 
-// Validate checks required fields, address formats, timing constraints, OIDs, and supported security settings, returning the first configuration error.
+// Validate checks server, authentication, active-source, timing, address, and protocol constraints.
 func (c Config) Validate() error {
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
@@ -221,10 +366,40 @@ func (c Config) Validate() error {
 	if c.Server.PrivateKey == "" {
 		return errors.New("server.private_key is required")
 	}
-	if c.Authentication.BearerTokenFile == "" {
-		return errors.New("authentication.bearer_token_file is required")
+	if len(c.Authentication.BearerTokenFiles) == 0 {
+		return errors.New("authentication.bearer_token_files must not be empty")
 	}
-	for _, d := range []struct {
+	if len(c.Authentication.BearerTokenFiles) > maxBearerTokenFiles {
+		return fmt.Errorf("authentication.bearer_token_files must contain at most %d entries", maxBearerTokenFiles)
+	}
+	if len(c.Authentication.AllowedClients) == 0 {
+		return errors.New("authentication.allowed_clients must not be empty")
+	}
+	if len(c.Authentication.AllowedClients) > maxAllowedClients {
+		return fmt.Errorf("authentication.allowed_clients must contain at most %d entries", maxAllowedClients)
+	}
+	seenPaths := map[string]struct{}{}
+	for _, path := range c.Authentication.BearerTokenFiles {
+		if path == "" {
+			return errors.New("authentication.bearer_token_files contains an empty path")
+		}
+		if _, ok := seenPaths[path]; ok {
+			return errors.New("authentication.bearer_token_files contains a duplicate path")
+		}
+		seenPaths[path] = struct{}{}
+	}
+	seenClients := map[netip.Prefix]struct{}{}
+	for _, value := range c.Authentication.AllowedClients {
+		prefix, err := parseClientPrefix(value)
+		if err != nil {
+			return fmt.Errorf("authentication.allowed_clients: %w", err)
+		}
+		if _, ok := seenClients[prefix]; ok {
+			return errors.New("authentication.allowed_clients contains a duplicate entry")
+		}
+		seenClients[prefix] = struct{}{}
+	}
+	for _, item := range []struct {
 		name           string
 		value, maximum time.Duration
 	}{
@@ -233,68 +408,52 @@ func (c Config) Validate() error {
 		{"server.idle_timeout", c.Server.IdleTimeout.Duration, 24 * time.Hour},
 		{"server.shutdown_timeout", c.Server.ShutdownTimeout.Duration, 5 * time.Minute},
 	} {
-		if err := validateDuration(d.name, d.value, d.maximum); err != nil {
+		if err := validateDuration(item.name, item.value, item.maximum); err != nil {
 			return err
 		}
 	}
 	if c.Server.MaxHeaderBytes != 0 && (c.Server.MaxHeaderBytes < 1024 || c.Server.MaxHeaderBytes > 1<<20) {
 		return errors.New("server.max_header_bytes must be between 1024 and 1048576")
 	}
-	if c.Collectors.NUT.Enabled {
-		if _, _, err := net.SplitHostPort(c.Collectors.NUT.Server); err != nil {
-			return fmt.Errorf("collectors.nut.server: %w", err)
+	seenNames := map[string]struct{}{}
+	for index, source := range c.Sources {
+		if !source.Enabled {
+			continue
 		}
-		if !validNUTIdentifier(c.Collectors.NUT.UPS) {
-			return errors.New("collectors.nut.ups must be 1-64 ASCII letters, digits, dots, underscores, or hyphens")
+		path := fmt.Sprintf("sources[%d]", index)
+		if !validSourceName(source.Name) {
+			return fmt.Errorf("%s.name must be a safe 1-64 character URL path segment", path)
 		}
-		if err := validateTimes(c.Collectors.NUT.PollInterval.Duration, c.Collectors.NUT.StaleAfter.Duration, "collectors.nut"); err != nil {
+		if _, ok := seenNames[source.Name]; ok {
+			return fmt.Errorf("duplicate source name %q", source.Name)
+		}
+		seenNames[source.Name] = struct{}{}
+		if source.Driver != "nut" && source.Driver != "snmp" {
+			return fmt.Errorf("%s.driver must be nut or snmp", path)
+		}
+		if (source.NUT == nil) == (source.SNMP == nil) {
+			return fmt.Errorf("%s must contain exactly one of nut or snmp", path)
+		}
+		if source.Driver == "nut" && source.NUT == nil || source.Driver == "snmp" && source.SNMP == nil {
+			return fmt.Errorf("%s must contain exactly the matching driver configuration", path)
+		}
+		if err := validateTimes(source.PollInterval.Duration, source.StaleAfter.Duration, path); err != nil {
 			return err
 		}
-		if err := validateDuration("collectors.nut.timeout", c.Collectors.NUT.Timeout.Duration, 5*time.Minute); err != nil {
+		if err := validateDuration(path+".timeout", source.Timeout.Duration, 5*time.Minute); err != nil {
 			return err
 		}
-	}
-	if c.Collectors.WAGO.Enabled {
-		w := c.Collectors.WAGO
-		if net.ParseIP(w.Address) == nil {
-			return errors.New("collectors.wago.address must be an IP address")
+		if source.Driver == "nut" {
+			if _, _, err := net.SplitHostPort(source.NUT.Server); err != nil {
+				return fmt.Errorf("%s.nut.server: %w", path, err)
+			}
+			if !validNUTIdentifier(source.NUT.UPS) {
+				return fmt.Errorf("%s.nut.ups must be 1-64 ASCII letters, digits, dots, underscores, or hyphens", path)
+			}
+			continue
 		}
-		if w.SNMP.Version != "3" {
-			return errors.New("collectors.wago.snmp.version must be 3")
-		}
-		if w.SNMP.Username == "" || w.SNMP.AuthPassphraseFile == "" || w.SNMP.PrivacyPassphraseFile == "" {
-			return errors.New("collectors.wago SNMP username and passphrase files are required")
-		}
-		if strings.ToUpper(w.SNMP.AuthProtocol) != "SHA" && strings.ToUpper(w.SNMP.AuthProtocol) != "SHA1" {
-			return errors.New("collectors.wago.snmp.auth_protocol must be SHA")
-		}
-		if strings.ToUpper(w.SNMP.PrivacyProtocol) != "DES" {
-			return errors.New("collectors.wago.snmp.privacy_protocol must be DES")
-		}
-		if err := validateTimes(w.PollInterval.Duration, w.StaleAfter.Duration, "collectors.wago"); err != nil {
+		if err := validateSNMPSource(path, *source.SNMP); err != nil {
 			return err
-		}
-		if err := validateDuration("collectors.wago.timeout", w.Timeout.Duration, 5*time.Minute); err != nil {
-			return err
-		}
-		if len(w.OIDs) == 0 {
-			return errors.New("collectors.wago.oids must not be empty")
-		}
-		if w.Discovery.Enabled {
-			if len(w.Discovery.RootOIDs) == 0 || len(w.Discovery.RootOIDs) > 8 {
-				return errors.New("collectors.wago.discovery.root_oids must contain between 1 and 8 roots")
-			}
-			if w.Discovery.MaxObjects < 1 || w.Discovery.MaxObjects > 10000 {
-				return errors.New("collectors.wago.discovery.max_objects must be between 1 and 10000")
-			}
-			if err := validateDuration("collectors.wago.discovery.timeout", w.Discovery.Timeout.Duration, 10*time.Minute); err != nil {
-				return err
-			}
-		}
-		for _, oid := range append(append([]string{}, w.OIDs...), w.Discovery.RootOIDs...) {
-			if !validOID(oid) {
-				return fmt.Errorf("invalid configured OID %q", oid)
-			}
 		}
 	}
 	switch c.Logging.Level {
@@ -305,12 +464,71 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// validNUTIdentifier reports whether s is a conservative protocol-safe NUT UPS identifier.
-func validNUTIdentifier(s string) bool {
-	if len(s) == 0 || len(s) > 64 {
+// validateSNMPSource checks one active source's fixed SNMPv3 read-only configuration.
+func validateSNMPSource(path string, source SNMPSource) error {
+	if net.ParseIP(source.Address) == nil {
+		return fmt.Errorf("%s.snmp.address must be an IP address", path)
+	}
+	security := source.Security
+	if security.Version != "3" {
+		return fmt.Errorf("%s.snmp.security.version must be 3", path)
+	}
+	if security.Username == "" || security.AuthPassphraseFile == "" || security.PrivacyPassphraseFile == "" {
+		return fmt.Errorf("%s SNMP username and passphrase files are required", path)
+	}
+	if strings.ToUpper(security.AuthProtocol) != "SHA" && strings.ToUpper(security.AuthProtocol) != "SHA1" {
+		return fmt.Errorf("%s.snmp.security.auth_protocol must be SHA", path)
+	}
+	if strings.ToUpper(security.PrivacyProtocol) != "DES" {
+		return fmt.Errorf("%s.snmp.security.privacy_protocol must be DES", path)
+	}
+	if len(source.OIDs) == 0 {
+		return fmt.Errorf("%s.snmp.oids must not be empty", path)
+	}
+	if source.Discovery.Enabled {
+		if len(source.Discovery.RootOIDs) == 0 || len(source.Discovery.RootOIDs) > 8 {
+			return fmt.Errorf("%s.snmp.discovery.root_oids must contain between 1 and 8 roots", path)
+		}
+		if source.Discovery.MaxObjects < 1 || source.Discovery.MaxObjects > 10000 {
+			return fmt.Errorf("%s.snmp.discovery.max_objects must be between 1 and 10000", path)
+		}
+		if err := validateDuration(path+".snmp.discovery.timeout", source.Discovery.Timeout.Duration, 10*time.Minute); err != nil {
+			return err
+		}
+	}
+	for _, oid := range append(append([]string{}, source.OIDs...), source.Discovery.RootOIDs...) {
+		if !validOID(oid) {
+			return fmt.Errorf("%s: invalid configured OID %q", path, oid)
+		}
+	}
+	return nil
+}
+
+// parseClientPrefix normalizes a plain IP to a host prefix and requires explicit CIDRs to be canonical networks.
+func parseClientPrefix(value string) (netip.Prefix, error) {
+	if prefix, err := netip.ParsePrefix(value); err == nil {
+		if prefix.Addr().Is4In6() {
+			return netip.Prefix{}, fmt.Errorf("IPv4-mapped CIDR %q is not allowed; use canonical IPv4 notation", value)
+		}
+		if prefix != prefix.Masked() {
+			return netip.Prefix{}, fmt.Errorf("CIDR %q has host bits set", value)
+		}
+		return prefix, nil
+	}
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("invalid IP address or CIDR %q", value)
+	}
+	address = address.Unmap()
+	return netip.PrefixFrom(address, address.BitLen()), nil
+}
+
+// validSourceName reports whether name is one safe URL path segment.
+func validSourceName(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > 64 {
 		return false
 	}
-	for _, r := range s {
+	for _, r := range name {
 		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
 			return false
 		}
@@ -318,7 +536,10 @@ func validNUTIdentifier(s string) bool {
 	return true
 }
 
-// validateTimes checks that poll is positive and stale is no shorter than poll, returning an error labeled with path when either constraint fails.
+// validNUTIdentifier reports whether s is a conservative protocol-safe NUT UPS identifier.
+func validNUTIdentifier(s string) bool { return validSourceName(s) }
+
+// validateTimes checks that poll is positive and stale is no shorter than poll.
 func validateTimes(poll, stale time.Duration, path string) error {
 	if err := validateDuration(path+".poll_interval", poll, 24*time.Hour); err != nil {
 		return err
@@ -340,14 +561,14 @@ func validateDuration(name string, value, maximum time.Duration) error {
 	return nil
 }
 
-// validOID reports whether s is a non-empty dotted sequence of unsigned 32-bit decimal components, with an optional leading dot.
+// validOID reports whether s is a non-empty dotted sequence of unsigned 32-bit decimal components.
 func validOID(s string) bool {
 	s = strings.TrimPrefix(s, ".")
 	if s == "" {
 		return false
 	}
-	for _, p := range strings.Split(s, ".") {
-		if _, err := strconv.ParseUint(p, 10, 32); err != nil {
+	for _, part := range strings.Split(s, ".") {
+		if _, err := strconv.ParseUint(part, 10, 32); err != nil {
 			return false
 		}
 	}
@@ -360,13 +581,13 @@ func readSecret(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f := os.NewFile(uintptr(fd), path)
-	if f == nil {
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
 		_ = syscall.Close(fd)
 		return "", errors.New("open secret file")
 	}
-	defer f.Close()
-	info, err := f.Stat()
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return "", err
 	}
@@ -376,26 +597,25 @@ func readSecret(path string) (string, error) {
 	if info.Mode().Perm()&0o007 != 0 || info.Mode().Perm()&0o020 != 0 {
 		return "", errors.New("insecure permissions: secret must not be accessible by others or group-writable")
 	}
-	b, err := io.ReadAll(io.LimitReader(f, 4097))
+	data, err := io.ReadAll(io.LimitReader(file, 4097))
 	if err != nil {
 		return "", err
 	}
-	if len(b) > 4096 {
+	if len(data) > 4096 {
 		return "", errors.New("secret exceeds 4096 bytes")
 	}
-	// Secret files may end in one conventional line ending, but embedded controls are forbidden.
-	b = bytes.TrimSuffix(b, []byte("\n"))
-	b = bytes.TrimSuffix(b, []byte("\r"))
-	v := string(b)
-	if v == "" {
+	data = bytes.TrimSuffix(data, []byte("\n"))
+	data = bytes.TrimSuffix(data, []byte("\r"))
+	value := string(data)
+	if value == "" {
 		return "", errors.New("file is empty")
 	}
-	for _, r := range v {
+	for _, r := range value {
 		if unicode.IsControl(r) {
 			return "", errors.New("secret contains a control character")
 		}
 	}
-	return v, nil
+	return value, nil
 }
 
 // validateSecret enforces byte-length and character policy for one loaded secret.
@@ -404,7 +624,7 @@ func validateSecret(value string, minimum, maximum int, rejectWhitespace bool) e
 		return fmt.Errorf("must contain between %d and %d bytes", minimum, maximum)
 	}
 	for _, r := range value {
-		if unicode.IsControl(r) || (rejectWhitespace && unicode.IsSpace(r)) {
+		if unicode.IsControl(r) || rejectWhitespace && unicode.IsSpace(r) {
 			return errors.New("contains a forbidden control or whitespace character")
 		}
 	}

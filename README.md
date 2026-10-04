@@ -115,6 +115,7 @@ Create a non-login service identity and protected paths:
 sudo adduser --system --group --no-create-home --home /nonexistent automation-gateway
 sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway
 sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway/secrets
+sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway/tokens
 sudo install -o root -g automation-gateway -m 0640 configs/config.example.yaml /etc/automation-gateway/config.yaml
 sudo install -o root -g automation-gateway -m 0640 configs/mib-metadata.example.json /etc/automation-gateway/mib-metadata.json
 sudo install -o root -g root -m 0644 systemd/automation-gateway.service /etc/systemd/system/automation-gateway.service
@@ -123,11 +124,12 @@ sudo install -o root -g root -m 0644 systemd/automation-gateway.service /etc/sys
 Provision secrets without putting them in shell arguments or history. Run each command, enter the value, and press Enter; every physical target must be provisioned separately:
 
 ```bash
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/token; unset value'
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/wago-auth; unset value'
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/wago-priv; unset value'
-sudo chown root:automation-gateway /etc/automation-gateway/token /etc/automation-gateway/secrets/wago-*
-sudo chmod 0640 /etc/automation-gateway/token /etc/automation-gateway/secrets/wago-*
+sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/tokens/zabbix; unset value'
+sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/tokens/maintenance; unset value'
+sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/controller-auth; unset value'
+sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/controller-priv; unset value'
+sudo chown root:automation-gateway /etc/automation-gateway/tokens/zabbix /etc/automation-gateway/tokens/maintenance /etc/automation-gateway/secrets/controller-*
+sudo chmod 0640 /etc/automation-gateway/tokens/zabbix /etc/automation-gateway/tokens/maintenance /etc/automation-gateway/secrets/controller-*
 ```
 
 Configure NUT, SNMP, host addresses, and TLS as described below. Validate before starting:
@@ -187,13 +189,13 @@ upsc quint@127.0.0.1
 ss -ltn | grep 3493
 ```
 
-`upsd` must not listen on the intranet or automation interface. Configure `collectors.nut.ups` to the exact NUT section name (`quint` above), not a display label or USB address.
+`upsd` must not listen on the intranet or automation interface. Configure `sources[].nut.ups` to the exact NUT section name (`quint` above), not a display label or USB address.
 
-## WAGO SNMPv3
+## SNMPv3 example: WAGO
 
 The sample targets `192.168.1.11:161`, SNMPv3 authPriv, SHA/SHA1, and DES. Replace the account name and secret files with the site's provisioned monitoring account. The historical account name `readonly` is not a security guarantee: the device was observed accepting a write under that account. Network isolation and the absence of a write code path are therefore mandatory.
 
-Normal polling reads only the fixed `collectors.wago.oids` list. Neither query parameters nor request bodies alter it. If the field device intentionally has no default gateway, keep SNMP local to the automation network. Configure the gateway host with an address that reaches the device directly and an intranet-facing route only as required for HTTPS, but do not enable forwarding.
+Normal polling reads only the fixed `sources[].snmp.oids` list. Neither query parameters nor request bodies alter it. If the field device intentionally has no default gateway, keep SNMP local to the automation network. Configure the gateway host with an address that reaches the device directly and an intranet-facing route only as required for HTTPS, but do not enable forwarding.
 
 Verify from the gateway host with the distribution SNMP tools only during commissioning, entering credentials interactively or through protected files according to local policy. Never paste passphrases into shared shell history. Once the gateway works, remove direct monitoring-client-to-device SNMP routing as described under Firewall migration.
 
@@ -203,6 +205,12 @@ Verify from the gateway host with the distribution SNMP tools only during commis
 
 Important fields:
 
+- `sources`: zero or more independently named collector instances. Multiple sources may use the same driver.
+- `sources[].name`: the stable API/Zabbix source name and one safe URL path segment.
+- `sources[].driver`: statically linked `nut` or `snmp` implementation.
+- `sources[].enabled`: defaults to `true`. A `false` entry is ignored completely: its semantic values, referenced files, connection, cache entry, and worker are not used. Unknown YAML keys are still rejected.
+- `authentication.bearer_token_files`: one to 32 protected token files; any one token can authenticate. Token digests are precomputed for request handling.
+- `authentication.allowed_clients`: one to 128 IPv4/IPv6 addresses or canonical CIDR networks. CIDRs with host bits and IPv4-mapped CIDRs are rejected rather than silently widened. The real TCP peer from `RemoteAddr` must match; forwarding headers are ignored.
 - `poll_interval`: independent cadence for that source.
 - `stale_after`: age after which a successful cached result is stale; it must be at least the poll interval.
 - `timeout`: NUT connection/deadline or each GoSNMP request timeout.
@@ -210,8 +218,9 @@ Important fields:
 - `discovery.root_oids`: fixed BulkWalk roots used once at startup/reload when discovery is enabled.
 - `discovery.max_objects`: hard result bound; exceeding it aborts discovery without publishing partial results (default `2048`, maximum `10000`).
 - `discovery.timeout`: hard time limit for one discovery operation (default `2m`, maximum `10m`).
-- `health_public`: permits only the minimal health object without bearer auth.
 - `max_header_bytes`: bounds request headers; all application routes accept GET only.
+
+Only the required backends need to be present. A deployment may start with only NUT, only SNMP, several sources of either type, or no active sources. Removing a source and setting `enabled: false` both prevent its collector from being initialized. A disabled source may retain incomplete or semantically invalid values in recognized fields, which is useful for staged commissioning.
 
 Validate as the service user because that checks its actual read permissions:
 
@@ -219,7 +228,7 @@ Validate as the service user because that checks its actual read permissions:
 sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
 ```
 
-On SIGHUP, a complete candidate is parsed, semantically validated, all secret and metadata files are loaded, the TLS pair is verified, and collector objects are prepared before activation. Failure preserves the entire active configuration and certificate. A successful reload restarts collector loops and their in-memory snapshots. Listener address, server timeouts/header limit, shutdown timeout, and public-health policy are immutable while running; changing one makes reload fail and requires a restart. Token, TLS files, OIDs, source timing, credentials, and enabled collectors are reloadable.
+On SIGHUP, a complete candidate is parsed, semantically validated, all active secret and metadata files are loaded, the TLS pair is verified, and active collector objects are prepared before activation. Disabled sources do not cause file reads or collector construction. Cache registration, compatible last-known-good snapshots, token digests, client prefixes, TLS certificate, and configuration are assembled as one replacement generation and published atomically. Failure preserves the active generation and certificate. Listener address, server timeouts/header limit, and shutdown timeout are immutable while running; changing one makes reload fail and requires a restart. Tokens, allowed clients, TLS files, OIDs, source timing, credentials, and enabled sources are reloadable.
 
 ## MIB metadata and discovery
 
@@ -240,7 +249,7 @@ GoSNMP is not a MIB compiler. Convert reviewed vendor MIBs offline with a truste
 
 The runtime strictly rejects unknown JSON fields and duplicate OIDs. Metadata enriches values and discovery; it does not cause an OID to be polled. Review MIB licensing before redistributing vendor files or generated descriptions.
 
-When `discovery.enabled` is true, the collector runs one explicit BulkWalk at source startup or successful reload and caches definitions. `GET /api/v1/sources/wago/discovery` returns that cache and never starts a walk. Full walks do not occur on normal polls or Zabbix requests. Keep roots narrow where possible and move only approved OIDs into the normal allowlist. The example metadata file contains only standard illustrative objects, not a vendor MIB.
+When `discovery.enabled` is true, the collector runs one explicit BulkWalk at source startup or successful reload and caches definitions. `GET /api/v1/sources/{name}/discovery` returns that cache and never starts a walk. Full walks do not occur on normal polls or monitoring requests. Keep roots narrow where possible and move only approved OIDs into the normal allowlist. The example metadata file contains only standard illustrative objects, not a vendor MIB.
 
 ## TLS, LEGO, and reload
 
@@ -271,7 +280,7 @@ openssl s_client -connect monitor.example.invalid:443 -servername monitor.exampl
 
 ## API reference
 
-All responses are JSON with `Content-Type: application/json`, `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store`. Except for optionally public health, send `Authorization: Bearer <token>`. The authentication scheme is case-insensitive, exactly one Authorization header is accepted, and the token comparison is constant-time after hashing. Common statuses are `200`, `401` (missing/invalid bearer), `404` (unknown route/source), and `405` (anything except GET). Errors have `{"error":"..."}` and do not expose collector or secret details.
+All endpoints, including health, require both an allowed TCP peer address and `Authorization: Bearer <token>`. The scheme is case-insensitive, exactly one Authorization header is accepted, and the candidate is compared with every configured token using fixed-length digests. `RemoteAddr` is authoritative; `X-Forwarded-For`, `Forwarded`, and `X-Real-IP` are ignored. Responses use JSON with `Content-Type: application/json`, `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store`. Common statuses are `200`, `401` (missing/invalid bearer), `403` (client address denied), `404` (unknown route/source), and `405` (anything except GET). Errors have `{"error":"..."}` and do not expose collector or secret details.
 
 ### Health
 
@@ -281,11 +290,11 @@ All responses are JSON with `Content-Type: application/json`, `X-Content-Type-Op
 {"status":"ok","version":"1.0.0","certificate_not_after":"2027-01-01T00:00:00Z"}
 ```
 
-- `ok` / HTTP 200: every configured source is available and fresh.
-- `degraded` / HTTP 200: one or more sources are unavailable or stale.
-- `failed` / HTTP 503: no sources are configured.
+- `ok` / HTTP 200: every active source is available and fresh.
+- `degraded` / HTTP 200: one or more active sources are unavailable or stale.
+- `failed` / HTTP 503: no sources are active.
 
-It never returns addresses, credentials, source names, errors, or metrics and may be public if configured.
+It never returns addresses, credentials, source names, errors, or metrics and is always protected by the same client and bearer policy as every other endpoint.
 
 ### Sources
 
@@ -293,7 +302,7 @@ It never returns addresses, credentials, source names, errors, or metrics and ma
 
 ```json
 {
-  "name": "wago",
+  "name": "controller-main",
   "driver": "snmp",
   "available": false,
   "stale": true,
@@ -309,25 +318,17 @@ It never returns addresses, credentials, source names, errors, or metrics and ma
 
 Source failure remains HTTP 200 because the response is a valid snapshot; use `available`, `stale`, and timestamps. `error` is intentionally sanitized. No successful poll yet means an empty metric array, `available:false`, and `stale:true`.
 
-`GET /api/v1/sources/{name}/metrics` returns the same freshness fields plus only metrics. `GET /api/v1/sources/{name}/discovery` returns `{"source":"wago","discovery":[...]}`. Discovery can be empty while its startup walk is pending or after a failed walk; requesting the endpoint does not contact the device.
+`GET /api/v1/sources/{name}/metrics` returns the same freshness fields plus only metrics. `GET /api/v1/sources/{name}/discovery` returns `{"source":"controller-main","discovery":[...]}`. Discovery can be empty while its startup walk is pending or after a failed walk; requesting the endpoint does not contact the device.
 
-`GET /api/v1/metrics` returns an object keyed by source containing all snapshots, suitable for one Zabbix master item. Compatibility aliases are:
-
-- `GET /api/v1/quint/status`
-- `GET /api/v1/quint/metrics`
-- `GET /api/v1/wago/status`
-- `GET /api/v1/wago/metrics`
-- `GET /api/v1/wago/discovery`
-
-All aliases have the same authentication, schemas, stale semantics, and status codes as their source-oriented equivalents.
+`GET /api/v1/metrics` returns an object keyed by configured source name containing all snapshots, suitable for one Zabbix master item. There are no device-specific compatibility aliases; all source access uses the generic routes above.
 
 Example requests, with the token read without displaying it:
 
 ```bash
-read -r TOKEN < /etc/automation-gateway/token
+read -r TOKEN < /etc/automation-gateway/tokens/zabbix
 curl --fail-with-body --silent --show-error \
-  --header "Authorization: Bearer ${TOKEN}" \
-  https://monitor.example.invalid/api/v1/sources/wago/metrics
+  --header "Authorization: Bearer $TOKEN" \
+  https://monitor.example.invalid/api/v1/sources/controller-main/metrics
 curl --fail-with-body --silent --show-error \
   --header "Authorization: Bearer ${TOKEN}" \
   https://monitor.example.invalid/api/v1/metrics
@@ -355,11 +356,11 @@ Store `{$AUTOMATION_GATEWAY_TOKEN}` as a **secret macro** at the narrowest appro
 
 Create dependent items from the master. Examples:
 
-- WAGO availability: key `automation.gateway.wago.available`, JSONPath `$.wago.available`, type `Numeric (unsigned)`, preprocessing JavaScript if Boolean conversion is required: `return value === 'true' ? 1 : 0;`.
-- WAGO uptime: key `automation.gateway.wago.uptime`, JSONPath `$.wago.metrics[?(@.name == 'sysUpTime')].value.first()`, type `Numeric (unsigned)`.
-- QUINT charge: key `automation.gateway.quint.charge`, JSONPath `$.quint.metrics[?(@.name == 'battery.charge')].value.first()`, type `Numeric (float)`.
+- SNMP source availability: key `automation.gateway.controller-main.available`, JSONPath `$.controller-main.available`, type `Numeric (unsigned)`, preprocessing JavaScript if Boolean conversion is required: `return value === 'true' ? 1 : 0;`.
+- SNMP source uptime: key `automation.gateway.controller-main.uptime`, JSONPath `$.controller-main.metrics[?(@.name == 'sysUpTime')].value.first()`, type `Numeric (unsigned)`.
+- NUT source charge: key `automation.gateway.ups-main.charge`, JSONPath `$.ups-main.metrics[?(@.name == 'battery.charge')].value.first()`, type `Numeric (float)`.
 
-Add trigger logic for `$.wago.stale`, `$.wago.available`, and master-item unsupported/no-data conditions. A stale metric remains intentionally present; never treat its numeric value as current without checking source freshness.
+Add trigger logic for each source's `stale` and `available` fields plus master-item unsupported/no-data conditions. A stale metric remains intentionally present; never treat its numeric value as current without checking source freshness.
 
 ## Service operation and logging
 
@@ -456,10 +457,10 @@ Review and separately remove `/etc/automation-gateway`, secrets, NUT configurati
 - Keep SNMPv3 SHA1/DES confined to the automation VLAN. HTTPS protects the intranet side.
 - Do not trust an SNMP username such as `readonly` as authorization evidence.
 - No production code invokes SNMP SET or accepts OIDs/operations from clients. NUT emits only `LIST VAR` and accepts no API-selected command.
-- Keep upsd loopback-only, forwarding disabled, the WAGO without a default gateway, and inter-VLAN policy default-deny.
+- Keep upsd loopback-only, forwarding disabled, isolated field devices without unnecessary routes, and inter-network policy default-deny.
 - Rotate bearer and SNMP secrets using protected files, validate, and reload. Never place them in YAML, command lines, tickets, source control, or logs.
 - Restrict certificate/key and secret access to root and the service group. The process runs without root and has only bind-service capability.
-- Public health is deliberately minimal. Protect it too by setting `health_public: false` when external monitoring does not require anonymous liveness.
+- Keep every endpoint, including health, behind both the configured client allowlist and bearer-token policy.
 - Discovery roots and normal OIDs are administrator configuration, never API input. Review newly discovered objects before adding them to the allowlist.
 - Preserve last-known-good config/certificate behavior: never automate a restart after a failed validation or renewal.
 - Keep Go and pinned dependencies patched, review `go.sum` changes, and rerun native plus target-architecture builds before deployment.

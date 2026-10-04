@@ -9,45 +9,66 @@ server:
   max_header_bytes: 16384
 
 authentication:
-  bearer_token_file: "/etc/automation-gateway/token"
-  health_public: true
+  # One to 32 protected token files and one to 128 client addresses/networks are required.
+  bearer_token_files:
+    - "/etc/automation-gateway/tokens/zabbix"
+    - "/etc/automation-gateway/tokens/maintenance"
+  # CIDR entries must be canonical networks without host bits.
+  allowed_clients:
+    - "192.168.2.232"
+    - "192.168.2.0/24"
+    - "2001:db8:1234::/64"
 
 logging:
   level: "info"
 
-collectors:
-  nut:
+# Sources are independent. Remove an entry or set enabled: false to skip it
+# completely, including its semantic validation, files, connections, and workers.
+sources:
+  - name: "ups-main"
+    driver: "nut"
     enabled: true
-    server: "127.0.0.1:3493"
-    ups: "quint"
     poll_interval: "10s"
     stale_after: "30s"
     timeout: "5s"
+    nut:
+      server: "127.0.0.1:3493"
+      ups: "quint"
 
-  wago:
+  - name: "controller-main"
+    driver: "snmp"
     enabled: true
-    address: "192.168.1.11"
-    port: 161
     poll_interval: "30s"
     stale_after: "90s"
     timeout: "5s"
-    # This fixed allowlist is the only set polled in normal operation.
-    oids:
-      - "1.3.6.1.2.1.1.3.0"
-      - "1.3.6.1.2.1.1.5.0"
-    metadata_file: "/etc/automation-gateway/mib-metadata.json"
     snmp:
-      version: "3"
-      username: "monitoring-account"
-      auth_protocol: "SHA"
-      auth_passphrase_file: "/etc/automation-gateway/secrets/wago-auth"
-      privacy_protocol: "DES"
-      privacy_passphrase_file: "/etc/automation-gateway/secrets/wago-priv"
-    discovery:
-      enabled: true
-      # Discovery aborts rather than caching partial data when this bound is exceeded.
-      max_objects: 2048
-      timeout: "2m"
-      root_oids:
-        - "1.3.6.1.2.1"
-        - "1.3.6.1.4.1"
+      address: "192.168.1.11"
+      port: 161
+      # This fixed allowlist is the only set polled in normal operation.
+      oids:
+        - "1.3.6.1.2.1.1.3.0"
+        - "1.3.6.1.2.1.1.5.0"
+      metadata_file: "/etc/automation-gateway/mib-metadata.json"
+      security:
+        version: "3"
+        username: "monitoring-account"
+        auth_protocol: "SHA"
+        auth_passphrase_file: "/etc/automation-gateway/secrets/controller-auth"
+        privacy_protocol: "DES"
+        privacy_passphrase_file: "/etc/automation-gateway/secrets/controller-priv"
+      discovery:
+        enabled: true
+        # Discovery aborts without caching partial data when this bound is exceeded.
+        max_objects: 2048
+        timeout: "2m"
+        root_oids:
+          - "1.3.6.1.2.1"
+          - "1.3.6.1.4.1"
+
+  # Disabled entries may retain incomplete or semantically invalid known values.
+  # Unknown YAML field names are still rejected as likely operator mistakes.
+  - name: "future-source"
+    driver: "snmp"
+    enabled: false
+    snmp:
+      address: "not-configured-yet"

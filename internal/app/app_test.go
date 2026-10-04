@@ -8,6 +8,7 @@ package app
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -16,6 +17,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/tseiman/HomeAuthMonitorGW/internal/config"
+	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
 )
 
 // pair creates a self-signed certificate and key named n in d for serial, returning their paths; unrecoverable setup failures are reported through t.
@@ -31,7 +35,7 @@ func pair(t *testing.T, d, n string, serial int64) (string, string) {
 
 // writeConfig writes a minimal gateway configuration to path using the supplied certificate, key, and token paths, and reports write errors through t.
 func writeConfig(t *testing.T, path, cert, key, token string) {
-	s := "server:\n  listen: '127.0.0.1:8443'\n  certificate: '" + cert + "'\n  private_key: '" + key + "'\nauthentication:\n  bearer_token_file: '" + token + "'\n"
+	s := "server:\n  listen: '127.0.0.1:8443'\n  certificate: '" + cert + "'\n  private_key: '" + key + "'\nauthentication:\n  bearer_token_files:\n    - '" + token + "'\n  allowed_clients:\n    - '127.0.0.1'\nsources: []\n"
 	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +60,10 @@ func TestReloadCommitsValidCandidate(t *testing.T) {
 	if err := a.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	if a.Token() != "second-token-value-0002" {
-		t.Fatalf("token=%q", a.Token())
+	if got := a.Config().Secrets.BearerTokens; len(got) != 1 || got[0] != "second-token-value-0002" {
+		t.Fatalf("tokens=%q", got)
 	}
-	cert, _ := a.TLS.GetCertificate(nil)
+	cert, _ := a.GetCertificate(nil)
 	x, _ := x509.ParseCertificate(cert.Certificate[0])
 	if x.SerialNumber.Int64() != 2 {
 		t.Fatalf("serial=%s", x.SerialNumber)
@@ -84,7 +88,96 @@ func TestReloadFailurePreservesActiveState(t *testing.T) {
 	if err := a.Reload(); err == nil {
 		t.Fatal("expected error")
 	}
-	if a.Token() != "first-token-value-0001" {
-		t.Fatalf("active token changed: %q", a.Token())
+	if got := a.Config().Secrets.BearerTokens; len(got) != 1 || got[0] != "first-token-value-0001" {
+		t.Fatalf("active tokens changed: %q", got)
+	}
+}
+
+// TestPrepareSourcesSkipsDisabledAndSupportsNUTOnly verifies disabled entries never reach driver setup.
+func TestPrepareSourcesSkipsDisabledAndSupportsNUTOnly(t *testing.T) {
+	cfg := config.Config{Sources: []config.Source{
+		{Name: "ignored", Driver: "snmp", Enabled: false, SNMP: &config.SNMPSource{MetadataFile: "/does/not/exist"}},
+		{Name: "ups-main", Driver: "nut", Enabled: true, PollInterval: config.Duration{Duration: time.Second}, StaleAfter: config.Duration{Duration: 2 * time.Second}, Timeout: config.Duration{Duration: time.Second}, NUT: &config.NUTSource{Server: "127.0.0.1:3493", UPS: "main"}},
+	}}
+	specs, err := prepareSources(cfg)
+	if err != nil {
+		t.Fatalf("prepareSources: %v", err)
+	}
+	if len(specs) != 1 || specs[0].name != "ups-main" || specs[0].driver != "nut" {
+		t.Fatalf("specs=%+v", specs)
+	}
+}
+
+// TestRuntimeOmitsDisabledSources verifies disabled entries create no worker-facing cache or API state.
+func TestRuntimeOmitsDisabledSources(t *testing.T) {
+	d := t.TempDir()
+	certificate, key := pair(t, d, "disabled", 3)
+	token := filepath.Join(d, "token")
+	if err := os.WriteFile(token, []byte("disabled-test-token-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configuration := filepath.Join(d, "config.yaml")
+	body := "server:\n  listen: '127.0.0.1:8443'\n  certificate: '" + certificate + "'\n  private_key: '" + key + "'\nauthentication:\n  bearer_token_files: ['" + token + "']\n  allowed_clients: ['127.0.0.1']\nsources:\n  - enabled: false\n    driver: unsupported\n    snmp:\n      metadata_file: /does/not/exist\n"
+	if err := os.WriteFile(configuration, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(configuration, nil)
+	if err != nil {
+		t.Fatalf("New validated a disabled source: %v", err)
+	}
+	defer runtime.Close()
+	if snapshots := runtime.View().Store.All(); len(snapshots) != 0 {
+		t.Fatalf("disabled source was registered: %+v", snapshots)
+	}
+}
+
+// TestPrepareSourcesSupportsSNMPOnly verifies one SNMP source is prepared without NUT or network access.
+func TestPrepareSourcesSupportsSNMPOnly(t *testing.T) {
+	cfg := config.Config{
+		Sources: []config.Source{{
+			Name: "controller-main", Driver: "snmp", Enabled: true,
+			PollInterval: config.Duration{Duration: time.Second}, StaleAfter: config.Duration{Duration: 2 * time.Second}, Timeout: config.Duration{Duration: time.Second},
+			SNMP: &config.SNMPSource{Address: "192.0.2.10", Port: 161, OIDs: []string{"1.3.6.1.2.1.1.3.0"}, Security: config.SNMPSecurity{Username: "monitor"}},
+		}},
+		Secrets: config.Secrets{Sources: map[string]config.SourceSecrets{"controller-main": {SNMPAuthPassphrase: "auth-passphrase", SNMPPrivPassphrase: "priv-passphrase"}}},
+	}
+	specs, err := prepareSources(cfg)
+	if err != nil {
+		t.Fatalf("prepareSources: %v", err)
+	}
+	if len(specs) != 1 || specs[0].name != "controller-main" || specs[0].driver != "snmp" {
+		t.Fatalf("specs=%+v", specs)
+	}
+}
+
+// TestBuildGenerationPublishesCompletePolicyAndCompatibleCache verifies atomic-generation preparation.
+func TestBuildGenerationPublishesCompletePolicyAndCompatibleCache(t *testing.T) {
+	oldConfig := config.Config{Secrets: config.Secrets{BearerTokens: []string{"old-token-value"}}}
+	oldSpecs := []sourceSpec{{name: "removed", driver: "nut", stale: time.Minute}, {name: "retained", driver: "nut", stale: time.Minute}}
+	oldGeneration := buildGeneration(oldConfig, nil, oldSpecs, nil)
+	oldGeneration.store.Success("removed", []metrics.Metric{{Name: "private-old"}}, time.Millisecond)
+	oldGeneration.store.Success("retained", []metrics.Metric{{Name: "charge", Value: 80}}, time.Millisecond)
+
+	newConfig := config.Config{Secrets: config.Secrets{BearerTokens: []string{"new-token-value"}}}
+	newSpecs := []sourceSpec{{name: "retained", driver: "nut", stale: time.Minute}, {name: "added", driver: "snmp", stale: time.Minute}}
+	next := buildGeneration(newConfig, nil, newSpecs, oldGeneration)
+
+	if _, ok := next.store.Snapshot("removed"); ok {
+		t.Fatal("removed source leaked into replacement generation")
+	}
+	retained, ok := next.store.Snapshot("retained")
+	if !ok || len(retained.Metrics) != 1 || retained.Metrics[0].Name != "charge" {
+		t.Fatalf("compatible snapshot not retained: %+v", retained)
+	}
+	if all := next.store.All(); len(all) != 2 {
+		t.Fatalf("partially registered generation: %+v", all)
+	}
+	if len(next.tokenDigests) != 1 || next.tokenDigests[0] != sha256.Sum256([]byte("new-token-value")) {
+		t.Fatalf("unexpected token digests: %x", next.tokenDigests)
+	}
+	changed := buildGeneration(newConfig, nil, []sourceSpec{{name: "retained", driver: "nut", stale: time.Minute, identity: sha256.Sum256([]byte("changed target"))}}, oldGeneration)
+	changedSnapshot, _ := changed.store.Snapshot("retained")
+	if len(changedSnapshot.Metrics) != 0 {
+		t.Fatalf("snapshot crossed incompatible source identity: %+v", changedSnapshot)
 	}
 }

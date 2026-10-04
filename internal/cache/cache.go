@@ -54,6 +54,18 @@ func (s *Store) Register(name, driver string, staleAfter time.Duration) {
 	s.m[name] = &entry{snapshot: Snapshot{Name: name, Driver: driver, Stale: true, Metrics: []metrics.Metric{}}, staleAfter: staleAfter}
 }
 
+// Restore replaces an already registered source with a detached compatible snapshot and reports whether it was accepted.
+func (s *Store) Restore(name string, snapshot Snapshot) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.m[name]
+	if !ok || entry.snapshot.Driver != snapshot.Driver || snapshot.Name != name {
+		return false
+	}
+	entry.snapshot = cloneSnapshot(snapshot)
+	return true
+}
+
 // Reset removes every registered source and cached snapshot from the store.
 func (s *Store) Reset() {
 	s.mu.Lock()
