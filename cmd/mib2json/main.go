@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,19 +46,28 @@ type commandRunner struct {
 	path string
 }
 
-// Run executes snmptranslate directly without a shell and returns bounded diagnostics on failure.
+// Run executes snmptranslate directly without a shell and rejects bounded diagnostics on stderr.
 func (runner commandRunner) Run(ctx context.Context, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, runner.path, args...)
-	output, err := command.CombinedOutput()
-	if err == nil {
-		return string(output), nil
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	diagnostic := strings.TrimSpace(stderr.String())
+	if err == nil && diagnostic == "" {
+		return stdout.String(), nil
 	}
-	diagnostic := strings.TrimSpace(string(output))
+	if diagnostic == "" {
+		diagnostic = strings.TrimSpace(stdout.String())
+	}
 	if len(diagnostic) > 4096 {
 		diagnostic = diagnostic[:4096] + "..."
 	}
 	if diagnostic == "" {
 		return "", err
+	}
+	if err == nil {
+		return "", fmt.Errorf("snmptranslate reported diagnostics: %s", diagnostic)
 	}
 	return "", fmt.Errorf("%w: %s", err, diagnostic)
 }
@@ -75,6 +85,7 @@ func run(args []string, stdout, stderr io.Writer, runner mibconvert.Runner) int 
 	fs.Var(&objects, "object", "approved object name; repeat for each exported object")
 	output := fs.String("output", "-", "output JSON path, or - for stdout")
 	translator := fs.String("snmptranslate", "snmptranslate", "snmptranslate executable path")
+	listSymbols := fs.Bool("list-symbols", false, "list symbols and numeric OIDs before selecting --object values")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -90,12 +101,32 @@ func run(args []string, stdout, stderr io.Writer, runner mibconvert.Runner) int 
 		fmt.Fprintf(stdout, "mib2json %s (commit %s, built %s)\n", version, commit, buildTime)
 		return 0
 	}
-	if *module == "" || len(directories) == 0 || len(objects) == 0 || *output == "" || *translator == "" {
-		fmt.Fprintln(stderr, "--module, at least one --mib-dir, and at least one --object are required; output and executable paths must not be empty")
+	if *module == "" || len(directories) == 0 || *translator == "" {
+		fmt.Fprintln(stderr, "--module, at least one --mib-dir, and a non-empty executable path are required")
 		return 2
 	}
 	if runner == nil {
 		runner = commandRunner{path: *translator}
+	}
+	if *listSymbols {
+		if len(objects) != 0 {
+			fmt.Fprintln(stderr, "--list-symbols does not accept --object")
+			return 2
+		}
+		symbols, err := mibconvert.ListSymbols(context.Background(), runner, *module, append([]string(nil), directories...))
+		if err != nil {
+			fmt.Fprintf(stderr, "list symbols failed: %v\n", err)
+			return 1
+		}
+		if _, err := io.WriteString(stdout, symbols); err != nil {
+			fmt.Fprintf(stderr, "write symbols: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	if len(objects) == 0 || *output == "" {
+		fmt.Fprintln(stderr, "at least one --object and a non-empty output path are required for conversion")
+		return 2
 	}
 	definitions, err := mibconvert.Convert(context.Background(), runner, mibconvert.Options{
 		Module: *module, MIBDirs: append([]string(nil), directories...), Objects: append([]string(nil), objects...),

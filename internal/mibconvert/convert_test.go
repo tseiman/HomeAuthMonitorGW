@@ -76,6 +76,20 @@ temperature OBJECT-TYPE
 	}
 }
 
+// TestListSymbolsUsesExplicitModulePath verifies symbol discovery uses only the requested module search path.
+func TestListSymbolsUsesExplicitModulePath(t *testing.T) {
+	key := strings.Join([]string{"-M", "/vendor:/dependencies", "-m", "TEST-MIB", "-Tz"}, "\x00")
+	runner := fakeRunner{outputs: map[string]string{key: "\"temperature\"\t\"1.3.6.1.4.1.999.2\"\n"}}
+
+	output, err := ListSymbols(context.Background(), runner, "TEST-MIB", []string{"/vendor", "/dependencies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "\"temperature\"\t\"1.3.6.1.4.1.999.2\"\n" {
+		t.Fatalf("output=%q", output)
+	}
+}
+
 // TestConvertRejectsInvalidAndDuplicateSelections verifies shell-free identifiers and bounded unique object selection.
 func TestConvertRejectsInvalidAndDuplicateSelections(t *testing.T) {
 	for _, options := range []Options{

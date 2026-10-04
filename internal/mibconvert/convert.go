@@ -37,28 +37,52 @@ type Options struct {
 	Objects []string
 }
 
+// ListSymbols returns Net-SNMP's numeric symbol listing for one module and its explicit dependency path.
+func ListSymbols(ctx context.Context, runner Runner, module string, directories []string) (string, error) {
+	if runner == nil {
+		return "", errors.New("runner is required")
+	}
+	base, err := moduleArgs(module, directories)
+	if err != nil {
+		return "", err
+	}
+	output, err := runner.Run(ctx, appendArgs(base, "-Tz")...)
+	if err != nil {
+		return "", fmt.Errorf("list symbols for %s: %w", module, err)
+	}
+	return output, nil
+}
+
+// moduleArgs validates one module and its complete search path and returns the common snmptranslate arguments.
+func moduleArgs(module string, directories []string) ([]string, error) {
+	if !identifierPattern.MatchString(module) {
+		return nil, errors.New("module must be a valid MIB identifier")
+	}
+	if len(directories) == 0 {
+		return nil, errors.New("at least one MIB directory is required")
+	}
+	for _, directory := range directories {
+		if directory == "" || strings.ContainsAny(directory, ":\x00") {
+			return nil, fmt.Errorf("invalid MIB directory %q", directory)
+		}
+	}
+	return []string{"-M", strings.Join(directories, ":"), "-m", module}, nil
+}
+
 // Convert resolves every selected object through snmptranslate and returns definitions in numeric OID order.
 func Convert(ctx context.Context, runner Runner, options Options) ([]metrics.Definition, error) {
 	if runner == nil {
 		return nil, errors.New("runner is required")
 	}
-	if !identifierPattern.MatchString(options.Module) {
-		return nil, errors.New("module must be a valid MIB identifier")
-	}
-	if len(options.MIBDirs) == 0 {
-		return nil, errors.New("at least one MIB directory is required")
-	}
-	for _, directory := range options.MIBDirs {
-		if directory == "" || strings.ContainsAny(directory, ":\x00") {
-			return nil, fmt.Errorf("invalid MIB directory %q", directory)
-		}
+	base, err := moduleArgs(options.Module, options.MIBDirs)
+	if err != nil {
+		return nil, err
 	}
 	if len(options.Objects) == 0 || len(options.Objects) > maxObjects {
 		return nil, fmt.Errorf("one to %d objects are required", maxObjects)
 	}
 	seenObjects := make(map[string]struct{}, len(options.Objects))
 	definitions := make([]metrics.Definition, 0, len(options.Objects))
-	base := []string{"-M", strings.Join(options.MIBDirs, ":"), "-m", options.Module}
 	for _, object := range options.Objects {
 		if !identifierPattern.MatchString(object) {
 			return nil, fmt.Errorf("object %q is not a valid MIB identifier", object)

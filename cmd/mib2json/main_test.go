@@ -29,8 +29,49 @@ func (cannedRunner) Run(_ context.Context, args ...string) (string, error) {
 		return ".1.3.6.1.4.1.999.2\n", nil
 	case strings.Contains(joined, " -Td TEST-MIB::temperature"):
 		return "temperature OBJECT-TYPE\n  SYNTAX Integer32\n  UNITS \"degrees Celsius\"\n  DESCRIPTION \"Measured temperature\"\n::= { objects 2 }\n", nil
+	case strings.HasSuffix(joined, " -Tz"):
+		return "\"temperature\"	\"1.3.6.1.4.1.999.2\"\n", nil
 	default:
 		return "", errors.New("unexpected command")
+	}
+}
+
+// TestCommandRunnerRejectsTranslatorDiagnostics verifies missing-import warnings cannot look like success.
+func TestCommandRunnerRejectsTranslatorDiagnostics(t *testing.T) {
+	tool := filepath.Join(t.TempDir(), "snmptranslate")
+	script := "#!/bin/sh\nprintf '%s\\n' '\"temperature\"  \"1.3.6.1.4.1.999.2\"'\nprintf '%s\\n' 'Cannot find module (SNMPv2-SMI)' >&2\n"
+	if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (commandRunner{path: tool}).Run(context.Background(), "-Tz")
+	if err == nil || !strings.Contains(err.Error(), "Cannot find module (SNMPv2-SMI)") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+// TestCommandRunnerReturnsCleanStdout verifies diagnostics handling preserves valid translator output.
+func TestCommandRunnerReturnsCleanStdout(t *testing.T) {
+	tool := filepath.Join(t.TempDir(), "snmptranslate")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'symbol-output\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := (commandRunner{path: tool}).Run(context.Background(), "-Tz")
+	if err != nil || output != "symbol-output\n" {
+		t.Fatalf("output=%q error=%v", output, err)
+	}
+}
+
+// TestCommandRunnerReturnsSilentProcessFailure verifies an empty diagnostic cannot hide the exit error.
+func TestCommandRunnerReturnsSilentProcessFailure(t *testing.T) {
+	tool := filepath.Join(t.TempDir(), "snmptranslate")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nexit 7\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (commandRunner{path: tool}).Run(context.Background(), "-Tz"); err == nil {
+		t.Fatal("silent process failure returned nil error")
 	}
 }
 
@@ -47,6 +88,27 @@ func TestRunWritesRuntimeCompatibleJSON(t *testing.T) {
 	}
 	if len(definitions) != 1 || definitions[0].OID != "1.3.6.1.4.1.999.2" || definitions[0].Name != "temperature" {
 		t.Fatalf("definitions=%+v", definitions)
+	}
+}
+
+// TestRunListsSymbolsWithoutPreselectedObjects verifies operators can discover names before choosing metadata.
+func TestRunListsSymbolsWithoutPreselectedObjects(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--module", "TEST-MIB", "--mib-dir", "/mibs", "--list-symbols"}, &stdout, &stderr, cannedRunner{})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "temperature") || !strings.Contains(stdout.String(), "1.3.6.1.4.1.999.2") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+// TestRunRejectsObjectsInSymbolListingMode keeps discovery and conversion unambiguous.
+func TestRunRejectsObjectsInSymbolListingMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--module", "TEST-MIB", "--mib-dir", "/mibs", "--list-symbols", "--object", "temperature"}, &stdout, &stderr, cannedRunner{})
+	if code != 2 || !strings.Contains(stderr.String(), "does not accept --object") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 
