@@ -1,0 +1,329 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: 24fc4306e98358f692fcffdbabec8115
+      name: Templates/HomeAuthMonitorGW
+  templates:
+    - uuid: 5f41680c911c5484abeb0509b4b1ffb8
+      template: 'Template HomeAuthMonitorGW by HTTP'
+      name: 'Template HomeAuthMonitorGW by HTTP'
+      description: 'Read-only monitoring through one authenticated HomeAuthMonitorGW HTTPS cache snapshot.'
+      groups:
+        - name: Templates/HomeAuthMonitorGW
+      items:
+        - uuid: 6722b521680d5ee0bd6b22eec3bb0ef5
+          name: 'Automation gateway snapshot'
+          type: HTTP_AGENT
+          key: automation.gateway.snapshot
+          delay: '{$AUTOMATION_GATEWAY_INTERVAL}'
+          history: '1d'
+          trends: '0'
+          value_type: TEXT
+          url: '{$AUTOMATION_GATEWAY_URL}/api/v1/metrics'
+          status_codes: '200'
+          follow_redirects: 'NO'
+          retrieve_mode: BODY
+          output_format: RAW
+          timeout: '{$AUTOMATION_GATEWAY_TIMEOUT}'
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          headers:
+            - name: Authorization
+              value: 'Bearer {$AUTOMATION_GATEWAY_TOKEN}'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  if (!snapshot || Array.isArray(snapshot) || typeof snapshot !== 'object') {
+                      throw 'snapshot root must be an object';
+                  }
+                  Object.keys(snapshot).forEach(function (sourceName) {
+                      var source = snapshot[sourceName];
+                      if (!/^[A-Za-z0-9._-]{1,64}$/.test(sourceName) || !source || typeof source !== 'object' || Array.isArray(source)) {
+                          throw 'invalid source entry';
+                      }
+                      if (typeof source.driver !== 'string' || typeof source.available !== 'boolean' || typeof source.stale !== 'boolean' || typeof source.last_success !== 'string' || !Array.isArray(source.metrics)) {
+                          throw 'invalid source schema';
+                      }
+                      if (source.last_success !== '0001-01-01T00:00:00Z' && (isNaN(Date.parse(source.last_success)) || Date.parse(source.last_success) < 0)) {
+                          throw 'invalid source timestamp';
+                      }
+                      source.metrics.forEach(function (metric) {
+                          if (!metric || typeof metric !== 'object' || Array.isArray(metric) || typeof metric.name !== 'string' || metric.name.length < 1 || metric.name.length > 128 || typeof metric.value_type !== 'string' || typeof metric.timestamp !== 'string' || !Object.prototype.hasOwnProperty.call(metric, 'value')) {
+                              throw 'invalid metric schema';
+                          }
+                          if (isNaN(Date.parse(metric.timestamp)) || Date.parse(metric.timestamp) < 0) {
+                              throw 'invalid metric timestamp';
+                          }
+                      });
+                  });
+                  return value;
+          tags:
+            - tag: component
+              value: gateway
+          triggers:
+            - uuid: 4d319811f912543e9027c490d902c1cd
+              expression: 'nodata(/Template HomeAuthMonitorGW by HTTP/automation.gateway.snapshot,5m)=1'
+              name: 'Automation gateway has no snapshot data for 5 minutes'
+              priority: HIGH
+              description: 'The authenticated HTTPS master item has produced no value for five minutes. Check TLS, allowlist, token, and gateway availability.'
+      discovery_rules:
+        - uuid: e882655e51c6526bbf649b0546193cbe
+          name: 'Discover gateway sources'
+          type: DEPENDENT
+          key: automation.gateway.sources.discovery
+          delay: '0'
+          lifetime: '7d'
+          description: 'Discovers source instances from the cached master snapshot without another HTTP request.'
+          item_prototypes:
+            - uuid: 3267f8c039d358878c15ed430016ffa8
+              name: 'Source {#SOURCE}: available'
+              type: DEPENDENT
+              key: 'automation.gateway.source.available["{#SOURCE}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              description: 'One means the most recent collector attempt succeeded; zero means it failed.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#SOURCEPATH}.available'
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'return value === "true" ? 1 : 0;'
+              tags:
+                - tag: component
+                  value: source
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+            - uuid: 031866b078e552f7a0a24f8abd2c6bab
+              name: 'Source {#SOURCE}: stale'
+              type: DEPENDENT
+              key: 'automation.gateway.source.stale["{#SOURCE}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              description: 'One means cached source values exceed their configured freshness threshold.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#SOURCEPATH}.stale'
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'return value === "true" ? 1 : 0;'
+              tags:
+                - tag: component
+                  value: source
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+            - uuid: 6b25fd6f88865ddb99ec4283b5336b85
+              name: 'Source {#SOURCE}: last successful poll'
+              type: DEPENDENT
+              key: 'automation.gateway.source.last_success["{#SOURCE}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              units: unixtime
+              description: 'UTC Unix time of the last successful collector poll.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#SOURCEPATH}.last_success'
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      if (value === '0001-01-01T00:00:00Z') {
+                          return 0;
+                      }
+                      var timestamp = Date.parse(value);
+                      if (isNaN(timestamp) || timestamp < 0) {
+                          throw 'invalid last_success timestamp';
+                      }
+                      return Math.floor(timestamp / 1000);
+              tags:
+                - tag: component
+                  value: source
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+          trigger_prototypes:
+            - uuid: 469ff0ae2c8858d4a0e3ef09d4788eec
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.available["{#SOURCE}"])=0'
+              name: 'Source {#SOURCE} is unavailable'
+              priority: HIGH
+              description: 'The latest independent collector attempt failed. The gateway can still expose a last-known-good cached value.'
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: source
+                  value: '{#SOURCE}'
+            - uuid: ce36e410337d5a3eb747650cece1bb2f
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.stale["{#SOURCE}"])=1'
+              name: 'Source {#SOURCE} data is stale'
+              priority: WARNING
+              description: 'Cached values remain visible but must not be treated as current.'
+              tags:
+                - tag: scope
+                  value: freshness
+                - tag: source
+                  value: '{#SOURCE}'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var sources = [];
+                  Object.keys(snapshot).sort().forEach(function (name) {
+                      var source = snapshot[name];
+                      if (!source || typeof source !== 'object') {
+                          return;
+                      }
+                      sources.push({
+                          '{#SOURCE}': name,
+                          '{#DRIVER}': typeof source.driver === 'string' ? source.driver : 'unknown',
+                          '{#SOURCEPATH}': '$[' + JSON.stringify(name) + ']'
+                      });
+                  });
+                  return JSON.stringify(sources);
+        - uuid: 67b8c2a857be586e8290e6806ee70b66
+          name: 'Discover gateway metrics'
+          type: DEPENDENT
+          key: automation.gateway.metrics.discovery
+          delay: '0'
+          lifetime: '7d'
+          description: 'Discovers all metric names in every cached source snapshot without another HTTP request.'
+          item_prototypes:
+            - uuid: dbe3e3c0e1bf5a4c9279f54668120d9c
+              name: 'Source {#SOURCE}: metric {#METRIC}'
+              type: DEPENDENT
+              key: 'automation.gateway.metric["{#SOURCE}","{#METRIC_KEY}"]'
+              history: '7d'
+              trends: '0'
+              value_type: TEXT
+              description: 'Current cached value for discovered metric {#METRIC}. Consult gateway metadata for its full description.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#VALUE_JSONPATH}'
+              tags:
+                - tag: component
+                  value: metric
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+                - tag: value-type
+                  value: '{#VALUE_TYPE}'
+                - tag: unit
+                  value: '{#UNIT}'
+            - uuid: fbd2d27a538e5d39b6d77a8434388d90
+              name: 'Source {#SOURCE}: metric {#METRIC} timestamp'
+              type: DEPENDENT
+              key: 'automation.gateway.metric.timestamp["{#SOURCE}","{#METRIC_KEY}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              units: unixtime
+              description: 'UTC Unix time attached to the cached metric value.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#TIMESTAMP_JSONPATH}'
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var timestamp = Date.parse(value);
+                      if (isNaN(timestamp) || timestamp < 0) {
+                          throw 'invalid metric timestamp';
+                      }
+                      return Math.floor(timestamp / 1000);
+              tags:
+                - tag: component
+                  value: metric
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var discovered = [];
+                  Object.keys(snapshot).sort().forEach(function (sourceName) {
+                      var source = snapshot[sourceName];
+                      if (!source || !Array.isArray(source.metrics)) {
+                          return;
+                      }
+                      source.metrics.forEach(function (metric) {
+                          if (!metric || typeof metric.name !== 'string') {
+                              return;
+                          }
+                          var metricID = metric.name;
+                          var selector = '@.name == ' + JSON.stringify(metric.name);
+                          if (metric.labels && typeof metric.labels.oid === 'string') {
+                              metricID = metric.labels.oid;
+                              selector = '@.labels.oid == ' + JSON.stringify(metric.labels.oid);
+                          }
+                          var metricKey = '';
+                          for (var index = 0; index < metricID.length; index++) {
+                              metricKey += ('0000' + metricID.charCodeAt(index).toString(16)).slice(-4);
+                          }
+                          var base = '$[' + JSON.stringify(sourceName) + '].metrics[?(' + selector + ')]';
+                          discovered.push({
+                              '{#SOURCE}': sourceName,
+                              '{#DRIVER}': typeof source.driver === 'string' ? source.driver : 'unknown',
+                              '{#METRIC}': metric.name,
+                              '{#METRIC_ID}': metricID,
+                              '{#METRIC_KEY}': metricKey,
+                              '{#VALUE_TYPE}': typeof metric.value_type === 'string' ? metric.value_type : 'unknown',
+                              '{#UNIT}': typeof metric.unit === 'string' ? metric.unit : '',
+                              '{#VALUE_JSONPATH}': base + '.value.first()',
+                              '{#TIMESTAMP_JSONPATH}': base + '.timestamp.first()'
+                          });
+                      });
+                  });
+                  discovered.sort(function (left, right) {
+                      var leftKey = left['{#SOURCE}'] + '\u0000' + left['{#METRIC}'];
+                      var rightKey = right['{#SOURCE}'] + '\u0000' + right['{#METRIC}'];
+                      return leftKey < rightKey ? -1 : (leftKey > rightKey ? 1 : 0);
+                  });
+                  return JSON.stringify(discovered);
+      macros:
+        - macro: '{$AUTOMATION_GATEWAY_URL}'
+          value: 'https://monitor.example.invalid'
+          description: 'HTTPS origin only, without a trailing slash.'
+        - macro: '{$AUTOMATION_GATEWAY_TOKEN}'
+          type: SECRET_TEXT
+          description: 'Bearer token authorized by the gateway. Set at the narrowest appropriate host or template scope.'
+        - macro: '{$AUTOMATION_GATEWAY_INTERVAL}'
+          value: '30s'
+          description: 'Master item interval; do not set below the useful collector interval.'
+        - macro: '{$AUTOMATION_GATEWAY_TIMEOUT}'
+          value: '10s'
+          description: 'HTTPS timeout, shorter than the master item interval.'
+      tags:
+        - tag: class
+          value: software
+        - tag: target
+          value: homeauthmonitorgw

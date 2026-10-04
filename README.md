@@ -17,7 +17,7 @@ The service is **not** an SNMP, NUT, or HTTP proxy. HTTP clients cannot choose a
 - [MIB metadata and discovery](#mib-metadata-and-discovery)
 - [TLS, LEGO, and reload](#tls-lego-and-reload)
 - [API reference](#api-reference)
-- [Zabbix 74 example](#zabbix-74-example)
+- [Zabbix 7.4 template](#zabbix-74-template)
 - [Service operation and logging](#service-operation-and-logging)
 - [Firewall migration](#firewall-migration)
 - [Update, rollback, and removal](#update-rollback-and-removal)
@@ -229,7 +229,7 @@ Validate as the service user because that checks its actual read permissions:
 sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
 ```
 
-On SIGHUP, a complete candidate is parsed, semantically validated, all active secret and metadata files are loaded, the TLS pair is verified, and active collector objects are prepared before activation. Disabled sources do not cause file reads or collector construction. Cache registration, compatible last-known-good snapshots, token digests, client prefixes, TLS certificate, and configuration are assembled as one replacement generation and published atomically. Failure preserves the active generation and last-known-good snapshots. Listener address, server timeouts/header limit, and shutdown timeout are immutable while running; changing one makes reload fail and requires a restart. Tokens, allowed clients, TLS files, OIDs, source timing, credentials, and enabled sources are reloadable.
+On SIGHUP, a complete candidate is parsed, semantically validated, all active secret and metadata files are loaded, the TLS pair is verified, and active collector objects are prepared before activation. Disabled sources do not cause file reads or collector construction. Cache registration, compatible last-known-good snapshots, token digests, client prefixes, TLS certificate, and configuration are assembled as one replacement generation and published atomically. Failure preserves the active generation and last-known-good snapshots. After publication, canceled workers from the replaced generation can access only their detached old cache and are reaped when they return; they cannot alter the published generation. Listener address, server timeouts/header limit, and shutdown timeout are immutable while running; changing one makes reload fail and requires a restart. Tokens, allowed clients, TLS files, OIDs, source timing, credentials, and enabled sources are reloadable.
 
 ## Command-line interface
 
@@ -263,7 +263,50 @@ Example with a site overlay:
 
 ## MIB metadata and discovery
 
-GoSNMP is not a MIB compiler. Convert reviewed vendor MIBs offline with a trusted MIB tool, then commit/deploy compact JSON metadata in this schema:
+GoSNMP is not a MIB compiler. The repository therefore includes the offline `mib2json` helper, which calls Net-SNMP `snmptranslate` for an explicit allowlist of reviewed objects and writes the compact runtime schema. It never contacts an SNMP agent and accepts no target address or credentials.
+
+Install the distribution's Net-SNMP command-line tools on the build/import workstation, then verify the executable and build the helper:
+
+```bash
+sudo apt-get update
+sudo apt-get install snmp
+snmptranslate -V
+go build -trimpath -ldflags "-s -w -X main.version=1.0.0 -X main.commit=$(git rev-parse HEAD) -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o mib2json ./cmd/mib2json
+./mib2json --version
+./mib2json --help
+```
+
+Place the reviewed vendor MIB and every required dependency in local directories. Directory order is significant and no ambient Net-SNMP MIB path is added: pass the complete ordered search path explicitly. Export only approved objects by repeating `--object`:
+
+```bash
+LC_ALL=C ./mib2json \
+  --mib-dir ./vendor-mibs \
+  --mib-dir ./vendor-mibs/dependencies \
+  --module VENDOR-MIB \
+  --object deviceTemperature \
+  --object deviceAlarmState \
+  --output /tmp/vendor-metadata.first.json
+
+LC_ALL=C ./mib2json \
+  --mib-dir ./vendor-mibs \
+  --mib-dir ./vendor-mibs/dependencies \
+  --module VENDOR-MIB \
+  --object deviceTemperature \
+  --object deviceAlarmState \
+  --output /tmp/vendor-metadata.second.json
+
+cmp --silent /tmp/vendor-metadata.first.json /tmp/vendor-metadata.second.json
+sha256sum /tmp/vendor-metadata.first.json
+```
+
+`mib2json` invokes `snmptranslate` directly without a shell, resolves each object numerically with `-On`, reads its definition with `-Td`, rejects duplicate selections/OIDs, sorts output by numeric OID, and atomically replaces the destination. A conversion error leaves an existing destination untouched. Copy the reviewed first output to the protected path referenced by `sources[].snmp.metadata_file`, then validate it through the production loader:
+
+```bash
+sudo install -o root -g automation-gateway -m 0640 /tmp/vendor-metadata.first.json /etc/automation-gateway/vendor-metadata.json
+sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
+```
+
+Generated metadata uses this schema:
 
 ```json
 [
@@ -278,7 +321,7 @@ GoSNMP is not a MIB compiler. Convert reviewed vendor MIBs offline with a truste
 ]
 ```
 
-The runtime strictly rejects unknown JSON fields and duplicate OIDs. Metadata enriches values and discovery; it does not cause an OID to be polled. Review MIB licensing before redistributing vendor files or generated descriptions.
+The runtime strictly rejects unknown JSON fields and duplicate OIDs. Metadata enriches values and discovery; it does not cause an OID to be polled. Review MIB licensing before redistributing vendor files, extracted descriptions, or generated metadata. Vendor MIBs are deliberately not bundled here.
 
 When `discovery.enabled` is true, the collector runs one explicit BulkWalk at source startup or successful reload and caches definitions. `GET /api/v1/sources/{name}/discovery` returns that cache and never starts a walk. Full walks do not occur on normal polls or monitoring requests. Keep roots narrow where possible and move only approved OIDs into the normal allowlist. The example metadata file contains only standard illustrative objects, not a vendor MIB.
 
@@ -368,30 +411,36 @@ unset TOKEN
 
 Do not use `--insecure` in production; install the proper ACME trust chain instead.
 
-## Zabbix 7.4 example
+## Zabbix 7.4 template
 
-Create one **HTTP agent** master item:
+Import [`zabbix/template_homeauthmonitorgw.yaml`](zabbix/template_homeauthmonitorgw.yaml) through **Data collection → Templates → Import**, review the displayed changes, and link `Template HomeAuthMonitorGW by HTTP` to the intended host. The template creates exactly one **HTTP agent** master item and derives every LLD rule and item prototype from that cached response; it never calls device protocols or the gateway discovery route.
 
-- Name: `Automation gateway snapshot`
-- Key: `automation.gateway.snapshot`
-- URL: `https://monitor.example.invalid/api/v1/metrics`
-- Request method: `GET`
-- Header: `Authorization: Bearer {$AUTOMATION_GATEWAY_TOKEN}`
-- Update interval: `30s` (do not poll faster than the shortest useful collector interval)
-- Timeout: `10s`, greater than expected LAN/TLS latency but less than the item interval
-- Type of information: `Text`
-- Required status codes: `200`
-- Verify peer and host: enabled
+Set these macros at the narrowest appropriate host or template scope:
 
-Store `{$AUTOMATION_GATEWAY_TOKEN}` as a **secret macro** at the narrowest appropriate template/host scope. The gateway does not call the Zabbix API.
+- `{$AUTOMATION_GATEWAY_URL}`: trusted HTTPS origin without a trailing slash, for example `https://monitor.example.invalid`.
+- `{$AUTOMATION_GATEWAY_TOKEN}`: a **Secret text** macro containing one authorized bearer token.
+- `{$AUTOMATION_GATEWAY_INTERVAL}`: master request interval, default `30s`; do not make it shorter than the useful collector interval.
+- `{$AUTOMATION_GATEWAY_TIMEOUT}`: request timeout, default `10s` and shorter than the item interval.
 
-Create dependent items from the master. Examples:
+The master item requires HTTP 200, verifies both certificate chain and host name, refuses redirects, calls `/api/v1/metrics`, and validates the expected snapshot structure before storing a value. Malformed JSON and schema-incompatible HTTP 200 bodies therefore make the master unsupported instead of silently freezing dependent monitoring. Ensure the Zabbix server or proxy's actual TCP source address is in the gateway `allowed_clients`; proxy-related HTTP headers do not affect that check.
 
-- SNMP source availability: key `automation.gateway.controller-main.available`, JSONPath `$.controller-main.available`, type `Numeric (unsigned)`, preprocessing JavaScript if Boolean conversion is required: `return value === 'true' ? 1 : 0;`.
-- SNMP source uptime: key `automation.gateway.controller-main.uptime`, JSONPath `$.controller-main.metrics[?(@.name == 'sysUpTime')].value.first()`, type `Numeric (unsigned)`.
-- NUT source charge: key `automation.gateway.ups-main.charge`, JSONPath `$.ups-main.metrics[?(@.name == 'battery.charge')].value.first()`, type `Numeric (float)`.
+Two dependent discovery rules process the master JSON:
 
-Add trigger logic for each source's `stale` and `available` fields plus master-item unsupported/no-data conditions. A stale metric remains intentionally present; never treat its numeric value as current without checking source freshness.
+- **Source discovery** creates numeric `available`, `stale`, and `last_success` items for every configured active source, plus unavailable and stale trigger prototypes. `last_success` is `0` until the source completes its first successful poll.
+- **Metric discovery** creates a value and timestamp item for every cached source/metric pair. Values intentionally use Zabbix `Text` because one generic discovery stream may contain counters, floating-point values, strings, and future protocol-specific types. Create narrowly typed dependent items only for metrics whose type and semantics are known and stable.
+
+The LLD JavaScript sorts its output, constructs JSON-escaped lookup paths, and uses a hex-encoded metric identity in item keys so metric punctuation cannot alter key syntax. SNMP metrics use their OID as identity; other drivers use the metric name. Metric timestamps and source success timestamps are converted to Unix time. Stale values remain visible by design: alert on the generated source freshness items and never interpret a metric value as current without them.
+
+After linking the template:
+
+1. Use **Monitoring → Latest data** to confirm `automation.gateway.snapshot` is supported and contains the expected source object.
+2. Wait for both dependent discovery rules, then verify the generated source and metric items.
+3. Confirm an unavailable test source or an intentionally aged test fixture changes only the corresponding trigger prototypes; do not disconnect or probe a production device merely to test alerts.
+4. Check the gateway logs and Zabbix preprocessing errors if discovery is empty. A 401 indicates the secret macro/token; a 403 indicates the TCP peer allowlist; TLS failures must not be bypassed with disabled verification.
+
+The template includes a five-minute master-item no-data trigger. Invalid payloads become unsupported and therefore also stop producing master history, allowing this trigger to fire after the last valid value. Adjust that threshold only in coordination with the master interval and the site's alerting policy.
+
+Repository tests parse the YAML, enforce the one-master/dependent topology, and execute the JavaScript transformations with Node. They cannot substitute for a real Zabbix 7.4 import because no Zabbix server is bundled; import and link the template on the target staging server before production use and resolve any server-side schema warning rather than bypassing it.
 
 ## Service operation and logging
 

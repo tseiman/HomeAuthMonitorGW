@@ -147,7 +147,6 @@ func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOver
 	if err != nil {
 		return err
 	}
-	defer runtime.Close()
 	cfg := runtime.Config()
 	logger := newLogger(logOutput, foreground, cfg.Logging.Level, levelOverride)
 	handler := httpapi.New(func() httpapi.View {
@@ -176,12 +175,13 @@ func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOver
 				continue
 			}
 			logger.Info("shutdown requested", "signal", sig.String())
-			// Stop accepting work and allow in-flight requests only until the configured shutdown deadline.
+			// HTTP and collector shutdown share one deadline, so their combined latency remains bounded.
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout.Duration)
-			err := server.Shutdown(ctx)
+			serverErr := server.Shutdown(ctx)
+			runtimeErr := runtime.CloseContext(ctx)
 			cancel()
-			if err != nil {
-				return fmt.Errorf("graceful shutdown: %w", err)
+			if serverErr != nil || runtimeErr != nil {
+				return fmt.Errorf("graceful shutdown: %w", errors.Join(serverErr, runtimeErr))
 			}
 			err = <-errs
 			if errors.Is(err, http.ErrServerClosed) {
@@ -189,10 +189,13 @@ func serve(configPaths []string, logOutput io.Writer, foreground bool, levelOver
 			}
 			return err
 		case err := <-errs:
-			if errors.Is(err, http.ErrServerClosed) {
-				return nil
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout.Duration)
+			closeErr := runtime.CloseContext(ctx)
+			cancel()
+			if !errors.Is(err, http.ErrServerClosed) {
+				return errors.Join(err, closeErr)
 			}
-			return err
+			return closeErr
 		}
 	}
 }

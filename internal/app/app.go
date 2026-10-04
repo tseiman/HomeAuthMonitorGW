@@ -65,6 +65,8 @@ type Runtime struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	closed bool
+	done   chan struct{}
 }
 
 // Check prepares the configuration at path without starting collectors and returns any validation or referenced-file error.
@@ -195,11 +197,17 @@ func (r *Runtime) Reload() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return errors.New("runtime is closed")
+	}
 	old := r.active.Load()
 	if old != nil && !reloadCompatible(old.cfg, cand.cfg) {
 		return errors.New("server listener, timeouts, and header limit require restart")
 	}
-	r.stopLocked()
+	if r.cancel != nil {
+		r.cancel()
+		r.cancel = nil
+	}
 	next := buildGeneration(cand.cfg, cand.cert, cand.specs, old)
 	// This single store prevents new credentials from ever observing an old or partially registered cache.
 	r.active.Store(next)
@@ -253,20 +261,35 @@ func (r *Runtime) startLocked(specs []sourceSpec, store *cache.Store) {
 	}
 }
 
-// stopLocked cancels collector work and waits for every worker while the caller holds the runtime lock.
-func (r *Runtime) stopLocked() {
-	if r.cancel != nil {
-		r.cancel()
-		r.cancel = nil
-	}
-	r.wg.Wait()
-}
-
 // Close stops all collector and discovery workers and waits for their completion.
 func (r *Runtime) Close() {
+	_ = r.CloseContext(context.Background())
+}
+
+// CloseContext cancels every collector generation and waits only until all workers exit or ctx expires.
+func (r *Runtime) CloseContext(ctx context.Context) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.stopLocked()
+	if !r.closed {
+		r.closed = true
+		if r.cancel != nil {
+			r.cancel()
+			r.cancel = nil
+		}
+		r.done = make(chan struct{})
+		done := r.done
+		go func() {
+			r.wg.Wait()
+			close(done)
+		}()
+	}
+	done := r.done
+	r.mu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // View returns one coherent active generation with detached policy slices and its generation-specific store.

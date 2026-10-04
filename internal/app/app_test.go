@@ -6,12 +6,14 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -202,4 +204,34 @@ func TestBuildGenerationPublishesCompletePolicyAndCompatibleCache(t *testing.T) 
 	if len(changedSnapshot.Metrics) != 0 {
 		t.Fatalf("snapshot crossed incompatible source identity: %+v", changedSnapshot)
 	}
+}
+
+// TestCloseContextHonorsDeadline verifies a non-cooperative worker cannot block process shutdown indefinitely.
+func TestCloseContextHonorsDeadline(t *testing.T) {
+	runtime := &Runtime{}
+	release := make(chan struct{})
+	cancelled := make(chan struct{})
+	runtime.cancel = func() { close(cancelled) }
+	runtime.wg.Add(1)
+	go func() {
+		defer runtime.wg.Done()
+		<-release
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := runtime.CloseContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseContext error=%v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("CloseContext ignored deadline")
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("worker context was not cancelled")
+	}
+	close(release)
+	runtime.Close()
 }
