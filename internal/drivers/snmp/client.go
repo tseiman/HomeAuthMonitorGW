@@ -21,7 +21,7 @@ func NewGoSNMP(target string, port uint16, username, authPassphrase, privacyPass
 	if target == "" || username == "" || authPassphrase == "" || privacyPassphrase == "" {
 		return nil, fmt.Errorf("SNMPv3 authPriv parameters are required")
 	}
-	return &gosnmp.GoSNMP{Target: target, Port: port, Version: gosnmp.Version3, Timeout: timeout, Retries: 1, ExponentialTimeout: true, MsgFlags: gosnmp.AuthPriv, SecurityModel: gosnmp.UserSecurityModel, SecurityParameters: &gosnmp.UsmSecurityParameters{UserName: username, AuthenticationProtocol: gosnmp.SHA, AuthenticationPassphrase: authPassphrase, PrivacyProtocol: gosnmp.DES, PrivacyPassphrase: privacyPassphrase}, MaxOids: 32, MaxRepetitions: 20}, nil
+	return &gosnmp.GoSNMP{Target: target, Port: port, Version: gosnmp.Version3, Timeout: timeout, Retries: 1, ExponentialTimeout: true, MsgFlags: gosnmp.AuthPriv, SecurityModel: gosnmp.UserSecurityModel, SecurityParameters: &gosnmp.UsmSecurityParameters{UserName: username, AuthenticationProtocol: gosnmp.SHA, AuthenticationPassphrase: authPassphrase, PrivacyProtocol: gosnmp.DES, PrivacyPassphrase: privacyPassphrase}, MaxOids: 16, MaxRepetitions: 20}, nil
 }
 
 // GoSNMPReader serializes operations that reuse one mutable gosnmp client template.
@@ -51,7 +51,7 @@ func (r *GoSNMPReader) Get(ctx context.Context, oids []string) ([]gosnmp.SnmpPDU
 	}
 	defer r.Template.Conn.Close()
 	// Polling is limited to the caller-supplied fixed OIDs and uses only the read-only GET operation.
-	return getBatches(oids, 32, r.Template.Get)
+	return getBatches(oids, r.Template.MaxOids, r.Template.Get)
 }
 
 // getBatches executes fixed-OID GETs in bounded batches and concatenates successful responses.
@@ -64,7 +64,7 @@ func getBatches(oids []string, maximum int, get func([]string) (*gosnmp.SnmpPack
 		}
 		packet, err := get(oids[start:end])
 		if err != nil {
-			return nil, fmt.Errorf("SNMP get: %w", err)
+			return nil, fmt.Errorf("SNMP get OIDs %d-%d of %d: %w", start+1, end, len(oids), err)
 		}
 		if packet.Error != gosnmp.NoError {
 			return nil, fmt.Errorf("SNMP response error %s", packet.Error.String())

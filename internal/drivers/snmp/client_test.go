@@ -22,6 +22,9 @@ func TestNewGoSNMPConfiguresV3AuthPrivSHA1DES(t *testing.T) {
 	if g.Version != gosnmp.Version3 || g.MsgFlags != gosnmp.AuthPriv {
 		t.Fatalf("version/security wrong: %+v", g)
 	}
+	if g.MaxOids != 16 {
+		t.Fatalf("MaxOids=%d want 16", g.MaxOids)
+	}
 	sp, ok := g.SecurityParameters.(*gosnmp.UsmSecurityParameters)
 	if !ok {
 		t.Fatalf("security=%T", g.SecurityParameters)
@@ -31,19 +34,19 @@ func TestNewGoSNMPConfiguresV3AuthPrivSHA1DES(t *testing.T) {
 	}
 }
 
-// TestGetBatchesChunksThirtyThreeOIDs verifies requests never exceed GoSNMP's 32-OID limit.
-func TestGetBatchesChunksThirtyThreeOIDs(t *testing.T) {
-	oids := make([]string, 33)
+// TestGetBatchesChunksSeventeenOIDs verifies requests honor a conservative 16-OID device limit.
+func TestGetBatchesChunksSeventeenOIDs(t *testing.T) {
+	oids := make([]string, 17)
 	for i := range oids {
 		oids[i] = ".1.3.6.1.4.1." + string(rune('A'+i))
 	}
 	var sizes []int
-	got, err := getBatches(oids, 32, func(batch []string) (*gosnmp.SnmpPacket, error) {
+	got, err := getBatches(oids, 16, func(batch []string) (*gosnmp.SnmpPacket, error) {
 		sizes = append(sizes, len(batch))
 		vars := make([]gosnmp.SnmpPDU, len(batch))
 		return &gosnmp.SnmpPacket{Variables: vars}, nil
 	})
-	if err != nil || len(got) != 33 || len(sizes) != 2 || sizes[0] != 32 || sizes[1] != 1 {
+	if err != nil || len(got) != 17 || len(sizes) != 2 || sizes[0] != 16 || sizes[1] != 1 {
 		t.Fatalf("sizes=%v pdus=%d err=%v", sizes, len(got), err)
 	}
 }

@@ -137,6 +137,7 @@ func prepareSources(cfg config.Config) ([]sourceSpec, error) {
 			if err != nil {
 				return nil, fmt.Errorf("source %q: %w", source.Name, err)
 			}
+			client.MaxOids = source.SNMP.MaxOIDsPerRequest
 			reader := &snmpdriver.GoSNMPReader{Template: client}
 			collector := &snmpdriver.Collector{Reader: reader, OIDs: source.SNMP.OIDs, Roots: source.SNMP.Discovery.RootOIDs, MaxDiscoveryObjects: source.SNMP.Discovery.MaxObjects, Metadata: meta}
 			var discoverer drivers.Discoverer

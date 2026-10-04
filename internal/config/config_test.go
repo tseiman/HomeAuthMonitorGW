@@ -68,6 +68,7 @@ func TestLoadGenericMixedSourcesAndAuthentication(t *testing.T) {
     stale_after: "90s"
     snmp:
       address: "192.0.2.10"
+      max_oids_per_request: 8
       oids: ["1.3.6.1.2.1.1.3.0"]
       security:
         version: "3"
@@ -87,7 +88,7 @@ func TestLoadGenericMixedSourcesAndAuthentication(t *testing.T) {
 	if len(got.Sources) != 2 || !got.Sources[0].Enabled || !got.Sources[1].Enabled {
 		t.Fatalf("sources=%+v", got.Sources)
 	}
-	if got.Sources[0].Timeout.Duration != 5*time.Second || got.Sources[1].SNMP.Port != 161 {
+	if got.Sources[0].Timeout.Duration != 5*time.Second || got.Sources[1].SNMP.Port != 161 || got.Sources[1].SNMP.MaxOIDsPerRequest != 8 {
 		t.Fatalf("defaults not applied: %+v", got.Sources)
 	}
 	if got.Sources[1].SNMP.Discovery.MaxObjects != 2048 || got.Sources[1].SNMP.Discovery.Timeout.Duration != 2*time.Minute {

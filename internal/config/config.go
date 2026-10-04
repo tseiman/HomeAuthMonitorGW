@@ -96,12 +96,13 @@ type NUTSource struct {
 
 // SNMPSource contains fixed polling, metadata, security, and bounded discovery settings.
 type SNMPSource struct {
-	Address      string       `yaml:"address"`
-	Port         uint16       `yaml:"port"`
-	OIDs         []string     `yaml:"oids"`
-	Security     SNMPSecurity `yaml:"security"`
-	Discovery    Discovery    `yaml:"discovery"`
-	MetadataFile string       `yaml:"metadata_file"`
+	Address           string       `yaml:"address"`
+	Port              uint16       `yaml:"port"`
+	MaxOIDsPerRequest int          `yaml:"max_oids_per_request"`
+	OIDs              []string     `yaml:"oids"`
+	Security          SNMPSecurity `yaml:"security"`
+	Discovery         Discovery    `yaml:"discovery"`
+	MetadataFile      string       `yaml:"metadata_file"`
 }
 
 // SNMPSecurity contains the constrained SNMPv3 security settings and secret-file paths.
@@ -173,7 +174,7 @@ func validateSourceKeys(node *yaml.Node) error {
 	allowed := map[string]map[string]struct{}{
 		"source":    keys("name", "driver", "enabled", "poll_interval", "stale_after", "timeout", "nut", "snmp"),
 		"nut":       keys("server", "ups"),
-		"snmp":      keys("address", "port", "oids", "security", "discovery", "metadata_file"),
+		"snmp":      keys("address", "port", "max_oids_per_request", "oids", "security", "discovery", "metadata_file"),
 		"security":  keys("version", "username", "auth_protocol", "auth_passphrase_file", "privacy_protocol", "privacy_passphrase_file"),
 		"discovery": keys("enabled", "root_oids", "max_objects", "timeout"),
 	}
@@ -449,6 +450,9 @@ func (c *Config) defaults() {
 			if source.SNMP.Port == 0 {
 				source.SNMP.Port = 161
 			}
+			if source.SNMP.MaxOIDsPerRequest == 0 {
+				source.SNMP.MaxOIDsPerRequest = 16
+			}
 			if source.SNMP.Discovery.MaxObjects == 0 {
 				source.SNMP.Discovery.MaxObjects = 2048
 			}
@@ -591,6 +595,9 @@ func validateSNMPSource(path string, source SNMPSource) error {
 	}
 	if len(source.OIDs) == 0 {
 		return fmt.Errorf("%s.snmp.oids must not be empty", path)
+	}
+	if source.MaxOIDsPerRequest < 1 || source.MaxOIDsPerRequest > 32 {
+		return fmt.Errorf("%s.snmp.max_oids_per_request must be between 1 and 32", path)
 	}
 	if source.Discovery.Enabled {
 		if len(source.Discovery.RootOIDs) == 0 || len(source.Discovery.RootOIDs) > 8 {
