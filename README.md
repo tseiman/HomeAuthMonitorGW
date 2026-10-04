@@ -9,13 +9,13 @@ The service is **not** an SNMP, NUT, or HTTP proxy. HTTP clients cannot choose a
 - [Architecture and trust boundaries](#architecture-and-trust-boundaries)
 - [Supported sources and constraints](#supported-sources-and-constraints)
 - [Build and test](#build-and-test)
-- [Blank-host installation](#blank-host-installation)
+- [Installation and update](#installation-and-update)
 - [NUT, upsd, and USB](#nut-upsd-and-usb)
-- [WAGO SNMPv3](#wago-snmpv3)
+- [SNMPv3 example: WAGO](#snmpv3-example-wago)
 - [Configuration and secrets](#configuration-and-secrets)
 - [Command-line interface](#command-line-interface)
 - [MIB metadata and discovery](#mib-metadata-and-discovery)
-- [TLS, LEGO, and reload](#tls-lego-and-reload)
+- [TLS files and reload](#tls-files-and-reload)
 - [API reference](#api-reference)
 - [Zabbix 7.4 template](#zabbix-74-template)
 - [Service operation and logging](#service-operation-and-logging)
@@ -36,7 +36,7 @@ flowchart LR
   end
   G --> C[Per-source RAM cache]
   C -->|HTTPS + bearer token| Z[Zabbix 7.4]
-  L[LEGO / ACME] -->|certificate files; no gateway ACME code| G
+  X[External certificate management] -->|certificate and key files| G
   A[Operator] -->|SIGHUP through systemctl reload| G
 ```
 
@@ -56,7 +56,7 @@ The internal `drivers.Collector` and optional `drivers.Discoverer` interfaces us
 - **SNMP:** SNMPv3 authPriv with SHA/SHA1 authentication and DES privacy through pinned GoSNMP. Normal polls issue GET for a fixed configuration allowlist. Optional startup/reload discovery issues BulkWalk for fixed roots.
 - **HTTPS:** one TLS 1.2-or-newer server and source-oriented v1 API.
 
-No database, generic protocol endpoint, write/control command, pprof listener, directory server, ACME client, Modbus replacement, or CODESYS replacement is included.
+No database, generic protocol endpoint, write/control command, pprof listener, directory server, Modbus replacement, or CODESYS replacement is included.
 
 ## Build and test
 
@@ -87,62 +87,67 @@ GOOS=linux GOARCH=amd64 go build -trimpath -o automation-gateway-linux-amd64 ./c
 
 Use `dpkg --print-architecture` on Debian-family systems and map `armhf` to `arm/7`, `i386` to `386`, `arm64` to `arm64`, and `amd64` to `amd64`. Builds are pure Go and do not require CGO. A KUNBUS Revolution Pi Core 3 is one supported deployment example and commonly uses an `armhf` userspace, but the installed OS—not the hardware product name—determines the correct artifact.
 
-## Blank-host installation
+## Installation and update
 
-The recommended path builds on a workstation or directly on the destination host with Go 1.23+. On a blank Debian-family host:
+The recommended installer supports both a blank Debian-family system and an existing deployment. It creates only project-owned runtime resources, preserves all site-owned files, validates a candidate before replacing an existing binary, and restarts only a service that was already active.
+
+### Blank host
+
+Install Git and Go 1.23 or newer, then clone the repository. NUT packages are needed only when this host collects a local NUT source:
 
 ```bash
 sudo apt update
-sudo apt install --yes ca-certificates git golang-go nut nut-client openssl curl
+sudo apt install --yes ca-certificates git golang-go
 
-go version
-git --version
-```
-
-Stop if `go version` is older than 1.23; install a supported Go toolchain from the official Go distribution or deploy the cross-built ARMv7 binary instead. Then build and stage:
-
-```bash
 git clone https://github.com/tseiman/HomeAuthMonitorGW.git
 cd HomeAuthMonitorGW
-go mod download
-go test ./...
-go build -trimpath -o automation-gateway ./cmd/gateway
-sudo install -o root -g root -m 0755 automation-gateway /usr/local/sbin/automation-gateway
+go version
+./scripts/install.sh
 ```
 
-Create a non-login service identity and protected paths:
+Stop if `go version` is older than 1.23 and install a supported Go toolchain before continuing. Run the script as the normal checkout owner, not through `sudo`: it downloads the checksummed Go modules, runs tests and vet, builds a static binary, and uses `sudo` only for the installation phase.
+
+The first run creates the dedicated service identity and these resources when they are absent:
+
+- `/usr/local/sbin/automation-gateway`
+- `/etc/systemd/system/automation-gateway.service`
+- `/etc/automation-gateway/config.yaml`
+- `/etc/automation-gateway/mib-metadata.json`
+- `/etc/automation-gateway/secrets/`
+- `/etc/automation-gateway/tokens/`
+
+The initial example configuration is intentionally not started because it contains site-specific addresses and references files that do not yet exist. Edit `/etc/automation-gateway/config.yaml`, create the referenced token and SNMP secret files with mode `0640` and group `automation-gateway`, and create or obtain the TLS certificate and private key as described under [TLS files and reload](#tls-files-and-reload). Set their exact paths in `server.certificate` and `server.private_key`. The installer does not create, copy, modify, renew, or remove certificate/key files.
+
+Validate the completed provisioning and explicitly start the initially inactive service with the same script:
 
 ```bash
-sudo adduser --system --group --no-create-home --home /nonexistent automation-gateway
-sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway
-sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway/secrets
-sudo install -d -o root -g automation-gateway -m 0750 /etc/automation-gateway/tokens
-sudo install -o root -g automation-gateway -m 0640 configs/config.example.yaml /etc/automation-gateway/config.yaml
-sudo install -o root -g automation-gateway -m 0640 configs/mib-metadata.example.json /etc/automation-gateway/mib-metadata.json
-sudo install -o root -g root -m 0644 systemd/automation-gateway.service /etc/systemd/system/automation-gateway.service
-```
-
-Provision secrets without putting them in shell arguments or history. Run each command, enter the value, and press Enter; every physical target must be provisioned separately:
-
-```bash
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/tokens/zabbix; unset value'
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/tokens/maintenance; unset value'
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/controller-auth; unset value'
-sudo sh -c 'umask 027; read -r value; printf "%s\n" "$value" > /etc/automation-gateway/secrets/controller-priv; unset value'
-sudo chown root:automation-gateway /etc/automation-gateway/tokens/zabbix /etc/automation-gateway/tokens/maintenance /etc/automation-gateway/secrets/controller-*
-sudo chmod 0640 /etc/automation-gateway/tokens/zabbix /etc/automation-gateway/tokens/maintenance /etc/automation-gateway/secrets/controller-*
-```
-
-Configure NUT, SNMP, host addresses, and TLS as described below. Validate before starting:
-
-```bash
-sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
-sudo systemd-analyze verify /etc/systemd/system/automation-gateway.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now automation-gateway
+./scripts/install.sh --start
 sudo systemctl status automation-gateway
 sudo journalctl -u automation-gateway -n 50 --no-pager
 ```
+
+For a host that receives a cross-built binary and therefore does not need a local Go toolchain:
+
+```bash
+./scripts/install.sh --binary ./automation-gateway-linux-armv7
+```
+
+Use the artifact matching the installed userspace architecture. On Debian-family systems, `dpkg --print-architecture` commonly maps `armhf` to Go `arm/7`, `i386` to `386`, `arm64` to `arm64`, and `amd64` to `amd64`.
+
+### Idempotent behavior
+
+Every run checks existing resources before acting:
+
+- an existing service user/group is validated and retained;
+- existing configuration, metadata, tokens, SNMP secrets, NUT files, and TLS files are never overwritten;
+- the binary and unit are replaced only when their content changed;
+- previous binary and unit versions are retained as adjacent `.previous` files before an update;
+- an invalid existing configuration blocks an update before the installed binary or unit is changed;
+- `systemctl daemon-reload` runs only after a unit change;
+- an active service is restarted only after a changed deployment passes validation;
+- an inactive existing service remains inactive unless `--start` is supplied.
+
+`--skip-tests` skips `go test` and `go vet` but still builds from the checkout. Use it only when the exact commit has already passed those gates elsewhere. `--binary PATH` installs a prebuilt executable and does not require Go. `--start` explicitly enables and starts an inactive valid installation.
 
 The unit grants only `CAP_NET_BIND_SERVICE`, so the unprivileged process can bind port 443. Port 8443 is an alternative: change `server.listen` and remove both capability directives from the unit.
 
@@ -325,32 +330,19 @@ The runtime strictly rejects unknown JSON fields and duplicate OIDs. Metadata en
 
 When `discovery.enabled` is true, the collector runs one explicit BulkWalk at source startup or successful reload and caches definitions. `GET /api/v1/sources/{name}/discovery` returns that cache and never starts a walk. Full walks do not occur on normal polls or monitoring requests. Keep roots narrow where possible and move only approved OIDs into the normal allowlist. The example metadata file contains only standard illustrative objects, not a vendor MIB.
 
-## TLS, LEGO, and reload
+## TLS files and reload
 
-The Go server terminates TLS with a minimum of TLS 1.2 and Go's secure default cipher policy. It does not implement ACME. LEGO obtains and renews the host leaf certificate and matching private key. Configure the exact LEGO-generated certificate/full-chain and key paths; a CA root or intermediate alone is not a server certificate.
+Create or obtain the TLS server certificate and matching private key, store both files securely on the host, and configure their exact paths in `server.certificate` and `server.private_key`. The `automation-gateway` service account must be able to traverse the parent directories and read both files. Certificate creation and placement are outside this project and are not performed by the installer.
 
-Issue the certificate using the site's already selected LEGO challenge/provider. Provider credentials are environment-specific and must use LEGO's protected credential mechanism; do not place them in gateway YAML. Ensure the service group can read the resulting files/directories without granting broader access:
+After replacing the configured certificate or key files, validate and reload the service:
 
 ```bash
-sudo chgrp automation-gateway /etc/lego/certificates/monitor.example.invalid.crt /etc/lego/certificates/monitor.example.invalid.key
-sudo chmod 0640 /etc/lego/certificates/monitor.example.invalid.crt /etc/lego/certificates/monitor.example.invalid.key
 sudo -u automation-gateway /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
-```
-
-After a successful LEGO renewal, the deployment hook must run:
-
-```bash
 sudo systemctl reload automation-gateway
 sudo journalctl -u automation-gateway -n 20 --no-pager
 ```
 
-Do not reload after a failed renewal. On HUP the daemon loads and parses the complete new keypair, verifies that the leaf is currently valid, is not a CA, and permits TLS server authentication, then atomically swaps the pointer used by `tls.Config.GetCertificate`. Existing connections continue; new handshakes receive the new pair. An incomplete, mismatched, expired, not-yet-valid, or unsuitable pair leaves the last-known-good certificate active. Verify serials around renewal:
-
-```bash
-openssl s_client -connect monitor.example.invalid:443 -servername monitor.example.invalid </dev/null 2>/dev/null | openssl x509 -noout -serial -enddate
-sudo systemctl reload automation-gateway
-openssl s_client -connect monitor.example.invalid:443 -servername monitor.example.invalid </dev/null 2>/dev/null | openssl x509 -noout -serial -enddate
-```
+On reload, the daemon verifies the complete keypair before atomically activating it. An incomplete, mismatched, expired, not-yet-valid, or unsuitable pair leaves the last-known-good certificate active.
 
 ## API reference
 
@@ -409,7 +401,7 @@ curl --fail-with-body --silent --show-error \
 unset TOKEN
 ```
 
-Do not use `--insecure` in production; install the proper ACME trust chain instead.
+Do not use `--insecure` in production; ensure the configured server certificate chains to the trust store used by the client.
 
 ## Zabbix 7.4 template
 
@@ -478,30 +470,25 @@ Do not alter the independent admin timeout-set access for HTTP/CODESYS or requir
 
 ## Update, rollback, and removal
 
-Start updates only from a clean worktree and keep versioned binaries for rollback:
+Start an update only from a clean worktree. The same installer repeats the test, build, validation, comparison, backup, and service-update workflow:
 
 ```bash
 cd HomeAuthMonitorGW
 git status --short
 git pull --ff-only
-go mod download
-go test ./...
-go vet ./...
-go build -trimpath -o automation-gateway ./cmd/gateway
-sudo -u automation-gateway ./automation-gateway --config /etc/automation-gateway/config.yaml --check
-sudo cp /usr/local/sbin/automation-gateway /usr/local/sbin/automation-gateway.previous
-sudo install -o root -g root -m 0755 automation-gateway /usr/local/sbin/automation-gateway
-sudo install -o root -g root -m 0644 systemd/automation-gateway.service /etc/systemd/system/automation-gateway.service
-sudo systemctl daemon-reload
-sudo systemctl restart automation-gateway
+./scripts/install.sh
 sudo systemctl status automation-gateway
 sudo journalctl -u automation-gateway -n 50 --no-pager
 ```
 
-Updates preserve `/etc/automation-gateway`, `/etc/lego`, NUT configuration, and secret files. If verification fails, rollback:
+An active service is restarted only when the binary or unit changed. An existing inactive service remains inactive. Configuration, metadata, tokens, SNMP secrets, NUT configuration, and TLS certificate/key files are preserved. If candidate validation fails, no installed executable or unit is changed. The installer does not choose or perform a rollback after replacement: on a later verification, systemd, or activation failure it reports the failure and leaves the installed files plus any adjacent `.previous` copies for the operator to inspect.
+
+A deliberately selected older binary is treated like any other candidate; version selection and any rollback decision remain under operator control. For a manual rollback when `.previous` files exist:
 
 ```bash
 sudo install -o root -g root -m 0755 /usr/local/sbin/automation-gateway.previous /usr/local/sbin/automation-gateway
+sudo install -o root -g root -m 0644 /etc/systemd/system/automation-gateway.service.previous /etc/systemd/system/automation-gateway.service
+sudo systemctl daemon-reload
 sudo systemctl restart automation-gateway
 sudo systemctl status automation-gateway
 ```
@@ -515,7 +502,7 @@ sudo systemctl daemon-reload
 sudo rm /usr/local/sbin/automation-gateway /usr/local/sbin/automation-gateway.previous
 ```
 
-Review and separately remove `/etc/automation-gateway`, secrets, NUT configuration, LEGO material, and the service account only when no rollback or other service needs them. Those deletions are intentionally not in the copyable removal block.
+Review and separately remove `/etc/automation-gateway`, secrets, NUT configuration, externally managed TLS certificate/key files, and the service account only when no rollback or other service needs them. Those deletions are intentionally not in the copyable removal block.
 
 ## Troubleshooting
 
