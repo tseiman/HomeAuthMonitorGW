@@ -1,6 +1,6 @@
 # HomeAuthMonitorGW
 
-HomeAuthMonitorGW is a small, read-only monitoring gateway for a KUNBUS Revolution Pi Core 3. It polls local NUT/upsd and an automation-VLAN device over SNMPv3, keeps independent in-memory source snapshots, and exposes only a controlled HTTPS/JSON API for Zabbix.
+HomeAuthMonitorGW is a small, read-only monitoring gateway for Linux systems. It polls NUT/upsd and configured automation devices over SNMPv3, keeps independent in-memory source snapshots, and exposes only a controlled HTTPS/JSON API for monitoring clients such as Zabbix. It is designed to run on resource-constrained edge systems as well as conventional Linux servers.
 
 The service is **not** an SNMP, NUT, or HTTP proxy. HTTP clients cannot choose an OID, protocol operation, NUT command, or device address. The production SNMP adapter implements GET and BulkWalk only; there is no SNMP SET path.
 
@@ -41,8 +41,8 @@ flowchart LR
 
 Trust boundaries:
 
-1. USB and SNMP are inside the automation network. Old SHA1/DES support remains there because the target requires it.
-2. The RevPi is an endpoint, not a router. Do not enable IP forwarding.
+1. USB and SNMP are inside the automation network. Old SHA1/DES support remains there only where a configured field device requires it.
+2. The gateway host is an endpoint, not a router. Do not enable IP forwarding.
 3. Zabbix reaches one HTTPS listener. The API returns configured source data only.
 4. Bearer, SNMP auth, and SNMP privacy values live in separate files. They are never returned or intentionally logged.
 5. Each collector polls independently. HTTP never performs a poll. A failed collector retains its last-known-good values and marks them stale without stopping another source or the daemon.
@@ -75,18 +75,20 @@ go build -trimpath -ldflags "-s -w -X main.version=1.0.0 -X main.commit=$(git re
 ./automation-gateway --version
 ```
 
-For a 32-bit Revolution Pi Core 3, cross-build either target explicitly:
+Select the build target from the operating system's userspace architecture:
 
 ```bash
 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o automation-gateway-linux-armv7 ./cmd/gateway
 GOOS=linux GOARCH=386 go build -trimpath -o automation-gateway-linux-386 ./cmd/gateway
+GOOS=linux GOARCH=arm64 go build -trimpath -o automation-gateway-linux-arm64 ./cmd/gateway
+GOOS=linux GOARCH=amd64 go build -trimpath -o automation-gateway-linux-amd64 ./cmd/gateway
 ```
 
-`arm/7` is the usual Raspberry Pi 3/RevPi target. Confirm the installed OS with `dpkg --print-architecture` before selecting an artifact. Builds are pure Go and do not require CGO.
+Use `dpkg --print-architecture` on Debian-family systems and map `armhf` to `arm/7`, `i386` to `386`, `arm64` to `arm64`, and `amd64` to `amd64`. Builds are pure Go and do not require CGO. A KUNBUS Revolution Pi Core 3 is one supported deployment example and commonly uses an `armhf` userspace, but the installed OS—not the hardware product name—determines the correct artifact.
 
 ## Blank-host installation
 
-The recommended path builds on a workstation or directly on a RevPi with Go 1.23+. On a blank Debian/Raspbian-style host:
+The recommended path builds on a workstation or directly on the destination host with Go 1.23+. On a blank Debian-family host:
 
 ```bash
 sudo apt update
@@ -191,9 +193,9 @@ ss -ltn | grep 3493
 
 The sample targets `192.168.1.11:161`, SNMPv3 authPriv, SHA/SHA1, and DES. Replace the account name and secret files with the site's provisioned monitoring account. The historical account name `readonly` is not a security guarantee: the device was observed accepting a write under that account. Network isolation and the absence of a write code path are therefore mandatory.
 
-Normal polling reads only the fixed `collectors.wago.oids` list. Neither query parameters nor request bodies alter it. The WAGO intentionally has no default gateway; keep SNMP local to the automation VLAN. Configure the RevPi with an address that reaches WAGO directly and an intranet-facing route only as required for HTTPS, but do not enable forwarding.
+Normal polling reads only the fixed `collectors.wago.oids` list. Neither query parameters nor request bodies alter it. If the field device intentionally has no default gateway, keep SNMP local to the automation network. Configure the gateway host with an address that reaches the device directly and an intranet-facing route only as required for HTTPS, but do not enable forwarding.
 
-Verify from the RevPi with the distribution SNMP tools only during commissioning, entering credentials interactively or through protected files according to local policy. Never paste passphrases into shared shell history. Once the gateway works, remove direct Zabbix-to-WAGO SNMP routing as described under Firewall migration.
+Verify from the gateway host with the distribution SNMP tools only during commissioning, entering credentials interactively or through protected files according to local policy. Never paste passphrases into shared shell history. Once the gateway works, remove direct monitoring-client-to-device SNMP routing as described under Firewall migration.
 
 ## Configuration and secrets
 
@@ -373,18 +375,18 @@ Logs are one JSON object per line through stdout/stderr for journald. Levels are
 
 SIGINT and SIGTERM stop accepting requests, allow bounded HTTP shutdown, cancel collector/discovery contexts, wait for them, and close network connections. SIGHUP only reloads. The unit restarts unexpected failures.
 
-Resource design is bounded: snapshots hold only current configured metrics/discovery, there is no history/database or unbounded queue, normal SNMP uses GET rather than walks, and one goroutine is used per active poller plus a temporary discovery goroutine. Measure on the actual RevPi after commissioning:
+Resource design is bounded: snapshots hold only current configured metrics/discovery, there is no history/database or unbounded queue, normal SNMP uses GET rather than walks, and one goroutine is used per active poller plus a temporary discovery goroutine. Measure on the actual deployment host after commissioning:
 
 ```bash
 systemctl show automation-gateway -p MemoryCurrent -p CPUUsageNSec -p TasksCurrent
 /usr/bin/time -v /usr/local/sbin/automation-gateway --config /etc/automation-gateway/config.yaml --check
 ```
 
-Build-host measurements are not a substitute for RevPi steady-state measurements because architecture, Go runtime, active metrics, and network behavior differ.
+Build-host measurements are not a substitute for deployment-host steady-state measurements because architecture, Go runtime, active metrics, and network behavior differ.
 
 ## Firewall migration
 
-Do not install example firewall rules blindly: the final RevPi address is site-specific. During commissioning, allow only Zabbix `192.168.2.232` to the chosen RevPi HTTPS address/port across `wago-gw`. Keep forwarding default-deny. The RevPi needs local outbound UDP/161 to WAGO and loopback TCP/3493 to upsd; it must not route packets.
+Do not install example firewall rules blindly: gateway and monitoring-client addresses are site-specific. During commissioning, allow only the approved monitoring clients to the chosen gateway HTTPS address and port. Keep forwarding default-deny. The gateway host needs only the configured outbound SNMP access and, when NUT is local, loopback TCP/3493 to upsd; it must not route packets.
 
 After HTTPS monitoring is verified, remove both legacy direct-monitoring rules from `wago-gw`:
 
