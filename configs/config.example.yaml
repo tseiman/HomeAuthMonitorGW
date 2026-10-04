@@ -45,6 +45,9 @@ collectors:
       privacy_passphrase_file: "/etc/automation-gateway/secrets/wago-priv"
     discovery:
       enabled: true
+      # Discovery aborts rather than caching partial data when this bound is exceeded.
+      max_objects: 2048
+      timeout: "2m"
       root_oids:
         - "1.3.6.1.2.1"
         - "1.3.6.1.4.1"

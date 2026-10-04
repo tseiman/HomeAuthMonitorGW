@@ -40,12 +40,13 @@ func New(store *cache.Store, token func() string, options Options) http.Handler 
 func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if !(a.options.HealthPublic && r.URL.Path == "/api/v1/health") && !validBearer(r.Header.Get("Authorization"), a.token()) {
+	if !(a.options.HealthPublic && r.URL.Path == "/api/v1/health") && !validBearer(r.Header.Values("Authorization"), a.token()) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="automation-gateway"`)
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -97,13 +98,21 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "not found")
 }
 
-// validBearer reports whether header contains the exact expected bearer token; empty expectations and malformed schemes are rejected.
-func validBearer(header, expected string) bool {
-	const p = "Bearer "
-	if !strings.HasPrefix(header, p) || expected == "" {
+// validBearer reports whether exactly one header contains a case-insensitive Bearer scheme and the exact expected credential.
+func validBearer(headers []string, expected string) bool {
+	if len(headers) != 1 || expected == "" {
 		return false
 	}
-	got := strings.TrimPrefix(header, p)
+	fields := strings.Fields(headers[0])
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		return false
+	}
+	got := fields[1]
+	for _, r := range got {
+		if r < 0x21 || r == 0x7f {
+			return false
+		}
+	}
 	// Equal-length digests let ConstantTimeCompare avoid exiting early based on token bytes.
 	a, b := sha256.Sum256([]byte(got)), sha256.Sum256([]byte(expected))
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1

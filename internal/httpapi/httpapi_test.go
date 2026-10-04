@@ -24,13 +24,13 @@ func testHandler(publicHealth bool) http.Handler {
 	return New(s, func() string { return "token-for-tests" }, Options{Version: "1.0.0-test", HealthPublic: publicHealth, CertificateNotAfter: func() time.Time { return time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC) }})
 }
 
-// TestBearerAuthentication verifies exact, case-sensitive bearer authentication for protected routes.
+// TestBearerAuthentication verifies case-insensitive scheme parsing, exact credential matching, and duplicate-header rejection.
 func TestBearerAuthentication(t *testing.T) {
 	h := testHandler(false)
 	for _, tc := range []struct {
 		header string
 		want   int
-	}{{"", 401}, {"Bearer wrong", 401}, {"bearer token-for-tests", 401}, {"Bearer token-for-tests", 200}} {
+	}{{"", 401}, {"Bearer wrong", 401}, {"Basic token-for-tests", 401}, {"bearer token-for-tests", 200}, {"Bearer token-for-tests", 200}} {
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/sources", nil)
 		r.Header.Set("Authorization", tc.header)
 		w := httptest.NewRecorder()
@@ -38,6 +38,21 @@ func TestBearerAuthentication(t *testing.T) {
 		if w.Code != tc.want {
 			t.Fatalf("header=%q code=%d", tc.header, w.Code)
 		}
+		if w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("header=%q cache-control=%q", tc.header, w.Header().Get("Cache-Control"))
+		}
+		if tc.want == http.StatusUnauthorized && w.Header().Get("WWW-Authenticate") != `Bearer realm="automation-gateway"` {
+			t.Fatalf("header=%q challenge=%q", tc.header, w.Header().Get("WWW-Authenticate"))
+		}
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/sources", nil)
+	r.Header.Add("Authorization", "Bearer token-for-tests")
+	r.Header.Add("Authorization", "Bearer token-for-tests")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("duplicate authorization headers accepted: code=%d", w.Code)
 	}
 }
 

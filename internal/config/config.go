@@ -9,17 +9,23 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Duration wraps time.Duration with YAML text decoding.
-type Duration struct{ time.Duration }
+type Duration struct {
+	time.Duration
+	set bool
+}
 
 // UnmarshalYAML parses node as a Go duration into d and returns a contextual error for invalid text.
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
@@ -28,6 +34,7 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("invalid duration %q: %w", node.Value, err)
 	}
 	d.Duration = v
+	d.set = true
 	return nil
 }
 
@@ -105,8 +112,10 @@ type SNMP struct {
 
 // Discovery controls optional SNMP root walks.
 type Discovery struct {
-	Enabled  bool     `yaml:"enabled"`
-	RootOIDs []string `yaml:"root_oids"`
+	Enabled    bool     `yaml:"enabled"`
+	RootOIDs   []string `yaml:"root_oids"`
+	MaxObjects int      `yaml:"max_objects"`
+	Timeout    Duration `yaml:"timeout"`
 }
 
 // Secrets holds credential values loaded from protected files and excluded from YAML decoding.
@@ -140,11 +149,20 @@ func Load(path string, readSecrets bool) (Config, error) {
 		if c.Secrets.BearerToken, err = readSecret(c.Authentication.BearerTokenFile); err != nil {
 			return Config{}, fmt.Errorf("bearer token: %w", err)
 		}
+		if err := validateSecret(c.Secrets.BearerToken, 16, 4096, true); err != nil {
+			return Config{}, fmt.Errorf("bearer token: %w", err)
+		}
 		if c.Collectors.WAGO.Enabled {
 			if c.Secrets.SNMPAuthPassphrase, err = readSecret(c.Collectors.WAGO.SNMP.AuthPassphraseFile); err != nil {
 				return Config{}, fmt.Errorf("SNMP auth passphrase: %w", err)
 			}
+			if err := validateSecret(c.Secrets.SNMPAuthPassphrase, 8, 255, false); err != nil {
+				return Config{}, fmt.Errorf("SNMP auth passphrase: %w", err)
+			}
 			if c.Secrets.SNMPPrivPassphrase, err = readSecret(c.Collectors.WAGO.SNMP.PrivacyPassphraseFile); err != nil {
+				return Config{}, fmt.Errorf("SNMP privacy passphrase: %w", err)
+			}
+			if err := validateSecret(c.Secrets.SNMPPrivPassphrase, 8, 255, false); err != nil {
 				return Config{}, fmt.Errorf("SNMP privacy passphrase: %w", err)
 			}
 		}
@@ -154,16 +172,16 @@ func Load(path string, readSecrets bool) (Config, error) {
 
 // defaults fills zero-valued optional settings in c with operational defaults and has no return value.
 func (c *Config) defaults() {
-	if c.Server.ReadTimeout.Duration == 0 {
+	if !c.Server.ReadTimeout.set && c.Server.ReadTimeout.Duration == 0 {
 		c.Server.ReadTimeout.Duration = 10 * time.Second
 	}
-	if c.Server.WriteTimeout.Duration == 0 {
+	if !c.Server.WriteTimeout.set && c.Server.WriteTimeout.Duration == 0 {
 		c.Server.WriteTimeout.Duration = 15 * time.Second
 	}
-	if c.Server.IdleTimeout.Duration == 0 {
+	if !c.Server.IdleTimeout.set && c.Server.IdleTimeout.Duration == 0 {
 		c.Server.IdleTimeout.Duration = 60 * time.Second
 	}
-	if c.Server.ShutdownTimeout.Duration == 0 {
+	if !c.Server.ShutdownTimeout.set && c.Server.ShutdownTimeout.Duration == 0 {
 		c.Server.ShutdownTimeout.Duration = 15 * time.Second
 	}
 	if c.Server.MaxHeaderBytes == 0 {
@@ -172,14 +190,20 @@ func (c *Config) defaults() {
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
 	}
-	if c.Collectors.NUT.Timeout.Duration == 0 {
+	if !c.Collectors.NUT.Timeout.set && c.Collectors.NUT.Timeout.Duration == 0 {
 		c.Collectors.NUT.Timeout.Duration = 5 * time.Second
 	}
-	if c.Collectors.WAGO.Timeout.Duration == 0 {
+	if !c.Collectors.WAGO.Timeout.set && c.Collectors.WAGO.Timeout.Duration == 0 {
 		c.Collectors.WAGO.Timeout.Duration = 5 * time.Second
 	}
 	if c.Collectors.WAGO.Port == 0 {
 		c.Collectors.WAGO.Port = 161
+	}
+	if c.Collectors.WAGO.Discovery.MaxObjects == 0 {
+		c.Collectors.WAGO.Discovery.MaxObjects = 2048
+	}
+	if !c.Collectors.WAGO.Discovery.Timeout.set && c.Collectors.WAGO.Discovery.Timeout.Duration == 0 {
+		c.Collectors.WAGO.Discovery.Timeout.Duration = 2 * time.Minute
 	}
 }
 
@@ -200,6 +224,19 @@ func (c Config) Validate() error {
 	if c.Authentication.BearerTokenFile == "" {
 		return errors.New("authentication.bearer_token_file is required")
 	}
+	for _, d := range []struct {
+		name           string
+		value, maximum time.Duration
+	}{
+		{"server.read_timeout", c.Server.ReadTimeout.Duration, 10 * time.Minute},
+		{"server.write_timeout", c.Server.WriteTimeout.Duration, 10 * time.Minute},
+		{"server.idle_timeout", c.Server.IdleTimeout.Duration, 24 * time.Hour},
+		{"server.shutdown_timeout", c.Server.ShutdownTimeout.Duration, 5 * time.Minute},
+	} {
+		if err := validateDuration(d.name, d.value, d.maximum); err != nil {
+			return err
+		}
+	}
 	if c.Server.MaxHeaderBytes != 0 && (c.Server.MaxHeaderBytes < 1024 || c.Server.MaxHeaderBytes > 1<<20) {
 		return errors.New("server.max_header_bytes must be between 1024 and 1048576")
 	}
@@ -207,10 +244,13 @@ func (c Config) Validate() error {
 		if _, _, err := net.SplitHostPort(c.Collectors.NUT.Server); err != nil {
 			return fmt.Errorf("collectors.nut.server: %w", err)
 		}
-		if c.Collectors.NUT.UPS == "" {
-			return errors.New("collectors.nut.ups is required")
+		if !validNUTIdentifier(c.Collectors.NUT.UPS) {
+			return errors.New("collectors.nut.ups must be 1-64 ASCII letters, digits, dots, underscores, or hyphens")
 		}
 		if err := validateTimes(c.Collectors.NUT.PollInterval.Duration, c.Collectors.NUT.StaleAfter.Duration, "collectors.nut"); err != nil {
+			return err
+		}
+		if err := validateDuration("collectors.nut.timeout", c.Collectors.NUT.Timeout.Duration, 5*time.Minute); err != nil {
 			return err
 		}
 	}
@@ -234,8 +274,22 @@ func (c Config) Validate() error {
 		if err := validateTimes(w.PollInterval.Duration, w.StaleAfter.Duration, "collectors.wago"); err != nil {
 			return err
 		}
+		if err := validateDuration("collectors.wago.timeout", w.Timeout.Duration, 5*time.Minute); err != nil {
+			return err
+		}
 		if len(w.OIDs) == 0 {
 			return errors.New("collectors.wago.oids must not be empty")
+		}
+		if w.Discovery.Enabled {
+			if len(w.Discovery.RootOIDs) == 0 || len(w.Discovery.RootOIDs) > 8 {
+				return errors.New("collectors.wago.discovery.root_oids must contain between 1 and 8 roots")
+			}
+			if w.Discovery.MaxObjects < 1 || w.Discovery.MaxObjects > 10000 {
+				return errors.New("collectors.wago.discovery.max_objects must be between 1 and 10000")
+			}
+			if err := validateDuration("collectors.wago.discovery.timeout", w.Discovery.Timeout.Duration, 10*time.Minute); err != nil {
+				return err
+			}
 		}
 		for _, oid := range append(append([]string{}, w.OIDs...), w.Discovery.RootOIDs...) {
 			if !validOID(oid) {
@@ -251,13 +305,37 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// validNUTIdentifier reports whether s is a conservative protocol-safe NUT UPS identifier.
+func validNUTIdentifier(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // validateTimes checks that poll is positive and stale is no shorter than poll, returning an error labeled with path when either constraint fails.
 func validateTimes(poll, stale time.Duration, path string) error {
-	if poll <= 0 {
-		return fmt.Errorf("%s.poll_interval must be positive", path)
+	if err := validateDuration(path+".poll_interval", poll, 24*time.Hour); err != nil {
+		return err
 	}
 	if stale < poll {
 		return fmt.Errorf("%s.stale_after must be at least poll_interval", path)
+	}
+	if stale > 7*24*time.Hour {
+		return fmt.Errorf("%s.stale_after must not exceed 168h", path)
+	}
+	return nil
+}
+
+// validateDuration requires value to be positive and no greater than maximum.
+func validateDuration(name string, value, maximum time.Duration) error {
+	if value <= 0 || value > maximum {
+		return fmt.Errorf("%s must be positive and not exceed %s", name, maximum)
 	}
 	return nil
 }
@@ -276,9 +354,19 @@ func validOID(s string) bool {
 	return true
 }
 
-// readSecret reads a non-empty secret from path only when it is a regular file without other-user access or group-write permission, otherwise returning an error.
+// readSecret opens path without following symlinks, validates the opened file, and reads one bounded secret value.
 func readSecret(path string) (string, error) {
-	info, err := os.Stat(path)
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
+		_ = syscall.Close(fd)
+		return "", errors.New("open secret file")
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return "", err
 	}
@@ -288,13 +376,37 @@ func readSecret(path string) (string, error) {
 	if info.Mode().Perm()&0o007 != 0 || info.Mode().Perm()&0o020 != 0 {
 		return "", errors.New("insecure permissions: secret must not be accessible by others or group-writable")
 	}
-	b, err := os.ReadFile(path)
+	b, err := io.ReadAll(io.LimitReader(f, 4097))
 	if err != nil {
 		return "", err
 	}
-	v := strings.TrimSpace(string(b))
+	if len(b) > 4096 {
+		return "", errors.New("secret exceeds 4096 bytes")
+	}
+	// Secret files may end in one conventional line ending, but embedded controls are forbidden.
+	b = bytes.TrimSuffix(b, []byte("\n"))
+	b = bytes.TrimSuffix(b, []byte("\r"))
+	v := string(b)
 	if v == "" {
 		return "", errors.New("file is empty")
 	}
+	for _, r := range v {
+		if unicode.IsControl(r) {
+			return "", errors.New("secret contains a control character")
+		}
+	}
 	return v, nil
+}
+
+// validateSecret enforces byte-length and character policy for one loaded secret.
+func validateSecret(value string, minimum, maximum int, rejectWhitespace bool) error {
+	if len(value) < minimum || len(value) > maximum {
+		return fmt.Errorf("must contain between %d and %d bytes", minimum, maximum)
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || (rejectWhitespace && unicode.IsSpace(r)) {
+			return errors.New("contains a forbidden control or whitespace character")
+		}
+	}
+	return nil
 }

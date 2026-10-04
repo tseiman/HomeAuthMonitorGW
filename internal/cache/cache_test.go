@@ -54,3 +54,22 @@ func TestSnapshotBecomesStaleByAgeAndIsACopy(t *testing.T) {
 		t.Fatal("snapshot aliases cache")
 	}
 }
+
+// TestDiscoveryEnumMapsAreCopies verifies both cache insertion and returned snapshots detach mutable enum metadata.
+func TestDiscoveryEnumMapsAreCopies(t *testing.T) {
+	s := New(time.Now)
+	s.Register("wago", "snmp", time.Minute)
+	definitions := []metrics.Definition{{OID: "1.2.3", Enum: map[string]string{"1": "on"}}}
+	s.SetDiscovery("wago", definitions)
+	definitions[0].Enum["1"] = "changed before read"
+
+	first, _ := s.Snapshot("wago")
+	if first.Discovery[0].Enum["1"] != "on" {
+		t.Fatalf("cache aliases inserted enum: %+v", first.Discovery)
+	}
+	first.Discovery[0].Enum["1"] = "changed after read"
+	second, _ := s.Snapshot("wago")
+	if second.Discovery[0].Enum["1"] != "on" {
+		t.Fatalf("snapshot aliases cached enum: %+v", second.Discovery)
+	}
+}

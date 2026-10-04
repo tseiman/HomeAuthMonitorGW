@@ -43,6 +43,25 @@ func Load(certFile, keyFile string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse TLS leaf: %w", err)
 	}
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+		return nil, errors.New("TLS leaf is not currently valid")
+	}
+	if leaf.IsCA {
+		return nil, errors.New("TLS leaf must not be a CA certificate")
+	}
+	if len(leaf.ExtKeyUsage) > 0 {
+		serverAuth := false
+		for _, usage := range leaf.ExtKeyUsage {
+			if usage == x509.ExtKeyUsageServerAuth || usage == x509.ExtKeyUsageAny {
+				serverAuth = true
+				break
+			}
+		}
+		if !serverAuth {
+			return nil, errors.New("TLS leaf extended key usage excludes server authentication")
+		}
+	}
 	pair.Leaf = leaf
 	return &pair, nil
 }

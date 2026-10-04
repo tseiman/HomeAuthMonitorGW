@@ -58,15 +58,16 @@ type Reader interface {
 	// Get reads the supplied fixed OIDs and returns their PDUs or an operation error.
 	Get(context.Context, []string) ([]gosnmp.SnmpPDU, error)
 	// Walk reads configured discovery roots and returns discovered PDUs or an operation error.
-	Walk(context.Context, []string) ([]gosnmp.SnmpPDU, error)
+	Walk(context.Context, []string, int) ([]gosnmp.SnmpPDU, error)
 }
 
 // Collector converts fixed SNMP reads and optional discovery walks into API models.
 type Collector struct {
-	Reader      Reader
-	OIDs, Roots []string
-	Metadata    Metadata
-	Now         func() time.Time
+	Reader              Reader
+	OIDs, Roots         []string
+	MaxDiscoveryObjects int
+	Metadata            Metadata
+	Now                 func() time.Time
 }
 
 // Poll performs a fixed-OID read through the collector Reader and converts every PDU at one timestamp, returning the first read or conversion error.
@@ -94,7 +95,7 @@ func (c Collector) Poll(ctx context.Context) ([]metrics.Metric, error) {
 // Discover walks the configured roots, deduplicates returned OIDs, and returns metadata-backed or inferred definitions, propagating reader errors.
 func (c Collector) Discover(ctx context.Context) ([]metrics.Definition, error) {
 	// Discovery walks only configured roots and remains separate from the polling cache.
-	pdus, err := c.Reader.Walk(ctx, c.Roots)
+	pdus, err := c.Reader.Walk(ctx, c.Roots, c.MaxDiscoveryObjects)
 	if err != nil {
 		return nil, err
 	}

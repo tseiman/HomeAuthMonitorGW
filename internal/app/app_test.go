@@ -42,7 +42,7 @@ func TestReloadCommitsValidCandidate(t *testing.T) {
 	d := t.TempDir()
 	c1, k1 := pair(t, d, "one", 1)
 	token := filepath.Join(d, "token")
-	os.WriteFile(token, []byte("first-token"), 0o600)
+	os.WriteFile(token, []byte("first-token-value-0001"), 0o600)
 	cfg := filepath.Join(d, "config.yaml")
 	writeConfig(t, cfg, c1, k1, token)
 	a, err := New(cfg, nil)
@@ -51,12 +51,12 @@ func TestReloadCommitsValidCandidate(t *testing.T) {
 	}
 	defer a.Close()
 	c2, k2 := pair(t, d, "two", 2)
-	os.WriteFile(token, []byte("second-token"), 0o600)
+	os.WriteFile(token, []byte("second-token-value-0002"), 0o600)
 	writeConfig(t, cfg, c2, k2, token)
 	if err := a.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	if a.Token() != "second-token" {
+	if a.Token() != "second-token-value-0002" {
 		t.Fatalf("token=%q", a.Token())
 	}
 	cert, _ := a.TLS.GetCertificate(nil)
@@ -71,7 +71,7 @@ func TestReloadFailurePreservesActiveState(t *testing.T) {
 	d := t.TempDir()
 	c, k := pair(t, d, "one", 1)
 	token := filepath.Join(d, "token")
-	os.WriteFile(token, []byte("first-token"), 0o600)
+	os.WriteFile(token, []byte("first-token-value-0001"), 0o600)
 	cfg := filepath.Join(d, "config.yaml")
 	writeConfig(t, cfg, c, k, token)
 	a, err := New(cfg, nil)
@@ -79,12 +79,12 @@ func TestReloadFailurePreservesActiveState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	os.WriteFile(token, []byte("changed-token"), 0o600)
+	os.WriteFile(token, []byte("changed-token-value-0002"), 0o600)
 	os.WriteFile(cfg, []byte("server:\n  unknown: true\n"), 0o600)
 	if err := a.Reload(); err == nil {
 		t.Fatal("expected error")
 	}
-	if a.Token() != "first-token" {
+	if a.Token() != "first-token-value-0001" {
 		t.Fatalf("active token changed: %q", a.Token())
 	}
 }

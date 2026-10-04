@@ -105,7 +105,7 @@ func prepareSources(cfg config.Config) ([]sourceSpec, error) {
 			return nil, err
 		}
 		reader := &snmpdriver.GoSNMPReader{Template: g}
-		c := &snmpdriver.Collector{Reader: reader, OIDs: cfg.Collectors.WAGO.OIDs, Roots: cfg.Collectors.WAGO.Discovery.RootOIDs, Metadata: meta}
+		c := &snmpdriver.Collector{Reader: reader, OIDs: cfg.Collectors.WAGO.OIDs, Roots: cfg.Collectors.WAGO.Discovery.RootOIDs, MaxDiscoveryObjects: cfg.Collectors.WAGO.Discovery.MaxObjects, Metadata: meta}
 		var d drivers.Discoverer
 		if cfg.Collectors.WAGO.Discovery.Enabled {
 			d = c
@@ -161,7 +161,7 @@ func (r *Runtime) startLocked(specs []sourceSpec) {
 			r.wg.Add(1)
 			go func(s sourceSpec) {
 				defer r.wg.Done()
-				dctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				dctx, cancel := context.WithTimeout(ctx, r.Config().Collectors.WAGO.Discovery.Timeout.Duration)
 				defer cancel()
 				defs, err := s.discoverer.Discover(dctx)
 				if err != nil {

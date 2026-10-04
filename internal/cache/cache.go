@@ -89,12 +89,12 @@ func (s *Store) Failure(name string, _ error, duration time.Duration) {
 	e.snapshot.LastAttempt, e.snapshot.PollDuration = s.now().UTC(), duration
 }
 
-// SetDiscovery copies defs into the discovery cache for name and ignores unknown names.
+// SetDiscovery deep-copies defs into the discovery cache for name and ignores unknown names.
 func (s *Store) SetDiscovery(name string, defs []metrics.Definition) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.m[name]; ok {
-		e.snapshot.Discovery = append([]metrics.Definition(nil), defs...)
+		e.snapshot.Discovery = cloneDefinitions(defs)
 	}
 }
 
@@ -132,11 +132,26 @@ func (s *Store) All() []Snapshot {
 	return out
 }
 
-// cloneSnapshot returns v with metric labels and discovery slices detached from cached storage.
+// cloneSnapshot returns v with metric labels and discovery values detached from cached storage.
 func cloneSnapshot(v Snapshot) Snapshot {
 	v.Metrics = cloneMetrics(v.Metrics)
-	v.Discovery = append([]metrics.Definition(nil), v.Discovery...)
+	v.Discovery = cloneDefinitions(v.Discovery)
 	return v
+}
+
+// cloneDefinitions deep-copies definitions and their enum maps so callers cannot mutate cached metadata.
+func cloneDefinitions(in []metrics.Definition) []metrics.Definition {
+	out := append([]metrics.Definition(nil), in...)
+	for i := range out {
+		if in[i].Enum == nil {
+			continue
+		}
+		out[i].Enum = make(map[string]string, len(in[i].Enum))
+		for key, value := range in[i].Enum {
+			out[i].Enum[key] = value
+		}
+	}
+	return out
 }
 
 // cloneMetrics deep-copies in and its label maps, returning a nil slice when in is nil.

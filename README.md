@@ -197,7 +197,7 @@ Verify from the RevPi with the distribution SNMP tools only during commissioning
 
 ## Configuration and secrets
 
-[`configs/config.example.yaml`](configs/config.example.yaml) is complete. YAML unknown fields, extra documents, malformed durations/OIDs, unsupported SNMP modes, missing references, insecure secret modes, and invalid TLS keypairs make `--check` fail. Secrets may be owner-readable or owner/group-readable, but never accessible to “other” and never group-writable.
+[`configs/config.example.yaml`](configs/config.example.yaml) is complete. YAML unknown fields, extra documents, malformed durations/OIDs, unsupported SNMP modes, missing references, insecure secret modes, and invalid TLS keypairs make `--check` fail. Secret paths must be regular files rather than symlinks or devices. Secrets may be owner-readable or owner/group-readable, but never accessible to “other” and never group-writable. Bearer tokens must contain 16–4096 non-whitespace bytes; SNMPv3 passphrases must contain 8–255 bytes. Secret files are read through one bounded descriptor and may end in one line ending, but may not contain embedded control characters.
 
 Important fields:
 
@@ -206,6 +206,8 @@ Important fields:
 - `timeout`: NUT connection/deadline or each GoSNMP request timeout.
 - `oids`: fixed normal-poll allowlist.
 - `discovery.root_oids`: fixed BulkWalk roots used once at startup/reload when discovery is enabled.
+- `discovery.max_objects`: hard result bound; exceeding it aborts discovery without publishing partial results (default `2048`, maximum `10000`).
+- `discovery.timeout`: hard time limit for one discovery operation (default `2m`, maximum `10m`).
 - `health_public`: permits only the minimal health object without bearer auth.
 - `max_header_bytes`: bounds request headers; all application routes accept GET only.
 
@@ -257,7 +259,7 @@ sudo systemctl reload automation-gateway
 sudo journalctl -u automation-gateway -n 20 --no-pager
 ```
 
-Do not reload after a failed renewal. On HUP the daemon loads and parses the complete new keypair before atomically swapping the pointer used by `tls.Config.GetCertificate`. Existing connections continue; new handshakes receive the new pair. An incomplete/mismatched pair leaves the last-known-good certificate active. Verify serials around renewal:
+Do not reload after a failed renewal. On HUP the daemon loads and parses the complete new keypair, verifies that the leaf is currently valid, is not a CA, and permits TLS server authentication, then atomically swaps the pointer used by `tls.Config.GetCertificate`. Existing connections continue; new handshakes receive the new pair. An incomplete, mismatched, expired, not-yet-valid, or unsuitable pair leaves the last-known-good certificate active. Verify serials around renewal:
 
 ```bash
 openssl s_client -connect monitor.example.invalid:443 -servername monitor.example.invalid </dev/null 2>/dev/null | openssl x509 -noout -serial -enddate
@@ -267,7 +269,7 @@ openssl s_client -connect monitor.example.invalid:443 -servername monitor.exampl
 
 ## API reference
 
-All responses are JSON with `Content-Type: application/json` and `X-Content-Type-Options: nosniff`. Except for optionally public health, send `Authorization: Bearer <token>`. The token comparison is constant-time after hashing. Common statuses are `200`, `401` (missing/invalid bearer), `404` (unknown route/source), and `405` (anything except GET). Errors have `{"error":"..."}` and do not expose collector or secret details.
+All responses are JSON with `Content-Type: application/json`, `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store`. Except for optionally public health, send `Authorization: Bearer <token>`. The authentication scheme is case-insensitive, exactly one Authorization header is accepted, and the token comparison is constant-time after hashing. Common statuses are `200`, `401` (missing/invalid bearer), `404` (unknown route/source), and `405` (anything except GET). Errors have `{"error":"..."}` and do not expose collector or secret details.
 
 ### Health
 

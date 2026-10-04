@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,7 +26,7 @@ func writePair(t *testing.T, dir, name string, serial int64) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "gateway.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature}
+	tmpl := x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "gateway.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +34,30 @@ func writePair(t *testing.T, dir, name string, serial int64) (string, string) {
 	certPath, keyPath := filepath.Join(dir, name+".crt"), filepath.Join(dir, name+".key")
 	os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
 	os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600)
+	return certPath, keyPath
+}
+
+// writeInvalidPair creates a matching keypair whose leaf has one requested invalid server-certificate property.
+func writeInvalidPair(t *testing.T, dir, name string, tmpl x509.Certificate) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl.SerialNumber = big.NewInt(99)
+	tmpl.Subject = pkix.Name{CommonName: "gateway.test"}
+	tmpl.KeyUsage = x509.KeyUsageDigitalSignature
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPath, keyPath := filepath.Join(dir, name+".crt"), filepath.Join(dir, name+".key")
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return certPath, keyPath
 }
 
@@ -82,5 +107,36 @@ func TestFailedReloadKeepsLastKnownGood(t *testing.T) {
 	}
 	if got := serial(t, m); got != 1 {
 		t.Fatalf("serial=%d", got)
+	}
+}
+
+// TestReloadRejectsInvalidServerLeavesAndKeepsLastKnownGood verifies time, CA, and EKU validation before publication.
+func TestReloadRejectsInvalidServerLeavesAndKeepsLastKnownGood(t *testing.T) {
+	d := t.TempDir()
+	c, k := writePair(t, d, "good", 1)
+	m, err := New(c, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	tests := []struct {
+		name string
+		cert x509.Certificate
+	}{
+		{"expired", x509.Certificate{NotBefore: now.Add(-2 * time.Hour), NotAfter: now.Add(-time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}},
+		{"future", x509.Certificate{NotBefore: now.Add(time.Hour), NotAfter: now.Add(2 * time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}},
+		{"ca", x509.Certificate{NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}},
+		{"client only", x509.Certificate{NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			badCert, badKey := writeInvalidPair(t, d, strings.ReplaceAll(tc.name, " ", "-"), tc.cert)
+			if err := m.Reload(badCert, badKey); err == nil {
+				t.Fatal("expected validation error")
+			}
+			if got := serial(t, m); got != 1 {
+				t.Fatalf("serial=%d", got)
+			}
+		})
 	}
 }

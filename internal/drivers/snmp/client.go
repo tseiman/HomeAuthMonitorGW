@@ -7,7 +7,9 @@ package snmp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,39 +51,89 @@ func (r *GoSNMPReader) Get(ctx context.Context, oids []string) ([]gosnmp.SnmpPDU
 	}
 	defer r.Template.Conn.Close()
 	// Polling is limited to the caller-supplied fixed OIDs and uses only the read-only GET operation.
-	packet, err := r.Template.Get(oids)
-	if err != nil {
-		return nil, fmt.Errorf("SNMP get: %w", err)
+	return getBatches(oids, 32, r.Template.Get)
+}
+
+// getBatches executes fixed-OID GETs in bounded batches and concatenates successful responses.
+func getBatches(oids []string, maximum int, get func([]string) (*gosnmp.SnmpPacket, error)) ([]gosnmp.SnmpPDU, error) {
+	var out []gosnmp.SnmpPDU
+	for start := 0; start < len(oids); start += maximum {
+		end := start + maximum
+		if end > len(oids) {
+			end = len(oids)
+		}
+		packet, err := get(oids[start:end])
+		if err != nil {
+			return nil, fmt.Errorf("SNMP get: %w", err)
+		}
+		if packet.Error != gosnmp.NoError {
+			return nil, fmt.Errorf("SNMP response error %s", packet.Error.String())
+		}
+		out = append(out, packet.Variables...)
 	}
-	if packet.Error != gosnmp.NoError {
-		return nil, fmt.Errorf("SNMP response error %s", packet.Error.String())
-	}
-	return packet.Variables, nil
+	return out, nil
 }
 
 // Walk serializes read-only bulk walks for roots under ctx and returns accumulated PDUs or the first cancellation, connection, or walk error.
-func (r *GoSNMPReader) Walk(ctx context.Context, roots []string) ([]gosnmp.SnmpPDU, error) {
+func (r *GoSNMPReader) Walk(ctx context.Context, roots []string, maxObjects int) ([]gosnmp.SnmpPDU, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.connect(ctx); err != nil {
 		return nil, err
 	}
 	defer r.Template.Conn.Close()
+	return walkBounded(ctx, roots, maxObjects, r.Template.BulkWalk)
+}
+
+var errDiscoveryLimit = errors.New("SNMP discovery object limit exceeded")
+
+// walkBounded removes overlapping roots and duplicate OIDs while enforcing a hard object limit during streaming.
+func walkBounded(ctx context.Context, roots []string, maxObjects int, walk func(string, gosnmp.WalkFunc) error) ([]gosnmp.SnmpPDU, error) {
 	var out []gosnmp.SnmpPDU
-	// Discovery is an explicit, separate read-only walk over configured roots.
-	for _, root := range roots {
-		err := r.Template.BulkWalk(root, func(p gosnmp.SnmpPDU) error {
+	seen := make(map[string]struct{})
+	for _, root := range deduplicateRoots(roots) {
+		err := walk(root, func(p gosnmp.SnmpPDU) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
+				oid := strings.TrimPrefix(strings.TrimSpace(p.Name), ".")
+				if _, ok := seen[oid]; ok {
+					return nil
+				}
+				if len(out) >= maxObjects {
+					return errDiscoveryLimit
+				}
+				seen[oid] = struct{}{}
 				out = append(out, p)
 				return nil
 			}
 		})
 		if err != nil {
+			if errors.Is(err, errDiscoveryLimit) {
+				return nil, errDiscoveryLimit
+			}
 			return nil, fmt.Errorf("SNMP walk: %w", err)
 		}
 	}
 	return out, nil
+}
+
+// deduplicateRoots canonicalizes roots and drops duplicates and descendants of already selected roots.
+func deduplicateRoots(roots []string) []string {
+	var out []string
+	for _, candidate := range roots {
+		candidate = strings.TrimPrefix(strings.TrimSpace(candidate), ".")
+		covered := false
+		for _, root := range out {
+			if candidate == root || strings.HasPrefix(candidate, root+".") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }

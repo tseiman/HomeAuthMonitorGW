@@ -28,7 +28,7 @@ func (f *fakeReader) Get(context.Context, []string) ([]gosnmp.SnmpPDU, error) {
 }
 
 // Walk records one fake discovery read and returns the configured PDUs without an error.
-func (f *fakeReader) Walk(_ context.Context, _ []string) ([]gosnmp.SnmpPDU, error) {
+func (f *fakeReader) Walk(_ context.Context, _ []string, _ int) ([]gosnmp.SnmpPDU, error) {
 	f.walkCalls++
 	return f.pdus, nil
 }

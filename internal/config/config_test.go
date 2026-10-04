@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -70,6 +71,9 @@ collectors:
 	if got.Secrets.BearerToken != "test-token-value" || got.Secrets.SNMPAuthPassphrase != "test-auth-passphrase" {
 		t.Fatal("secrets not loaded")
 	}
+	if got.Collectors.WAGO.Discovery.MaxObjects != 2048 || got.Collectors.WAGO.Discovery.Timeout.Duration != 2*time.Minute {
+		t.Fatalf("discovery defaults=%+v", got.Collectors.WAGO.Discovery)
+	}
 }
 
 // TestLoadRejectsUnknownField verifies that Load rejects unrecognized YAML fields.
@@ -103,6 +107,7 @@ func TestValidateRejectsUnsafeOrIncompleteConfig(t *testing.T) {
 	}
 
 	cfg.Server.Certificate, cfg.Server.PrivateKey = "/cert", "/key"
+	cfg.defaults()
 	cfg.Collectors.WAGO.Enabled = true
 	cfg.Collectors.WAGO.Address = "192.0.2.10"
 	cfg.Collectors.WAGO.OIDs = []string{"1.3.6.1.2.1.1.3.0"}
@@ -111,5 +116,113 @@ func TestValidateRejectsUnsafeOrIncompleteConfig(t *testing.T) {
 	cfg.Collectors.WAGO.SNMP = SNMP{Version: "3", Username: "u", AuthProtocol: "SHA", AuthPassphraseFile: "/auth", PrivacyProtocol: "AES", PrivacyPassphraseFile: "/priv"}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "DES") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// TestValidateRejectsUnsafeNUTIdentifiers verifies that configured UPS names cannot inject protocol tokens or lines.
+func TestValidateRejectsUnsafeNUTIdentifiers(t *testing.T) {
+	cfg := Config{
+		Server:         Server{Listen: ":8443", Certificate: "/cert", PrivateKey: "/key"},
+		Authentication: Authentication{BearerTokenFile: "/token"},
+		Collectors:     Collectors{NUT: NUT{Enabled: true, Server: "127.0.0.1:3493", PollInterval: Duration{Duration: time.Second}, StaleAfter: Duration{Duration: 2 * time.Second}, Timeout: Duration{Duration: time.Second}}},
+		Logging:        Logging{Level: "info"},
+	}
+	cfg.defaults()
+	for _, ups := range []string{"", "ups name", "ups\nINSTCMD ups shutdown.return", "ups\rUSERNAME admin", "ups	PASS x", `ups"name`, "ups'name", strings.Repeat("a", 65)} {
+		cfg.Collectors.NUT.UPS = ups
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "collectors.nut.ups") {
+			t.Errorf("ups=%q err=%v", ups, err)
+		}
+	}
+	for _, ups := range []string{"quint", "ups-1", "rack_2", "site.ups"} {
+		cfg.Collectors.NUT.UPS = ups
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("safe ups=%q err=%v", ups, err)
+		}
+	}
+}
+
+// TestValidateRejectsUnsafeDurations verifies every server, shutdown, poll, stale, and protocol timeout is positive and bounded.
+func TestValidateRejectsUnsafeDurations(t *testing.T) {
+	valid := Config{
+		Server:         Server{Listen: ":8443", Certificate: "/cert", PrivateKey: "/key", ReadTimeout: Duration{Duration: time.Second}, WriteTimeout: Duration{Duration: time.Second}, IdleTimeout: Duration{Duration: time.Second}, ShutdownTimeout: Duration{Duration: time.Second}, MaxHeaderBytes: 1024},
+		Authentication: Authentication{BearerTokenFile: "/token"},
+		Collectors:     Collectors{NUT: NUT{Enabled: true, Server: "127.0.0.1:3493", UPS: "quint", PollInterval: Duration{Duration: time.Second}, StaleAfter: Duration{Duration: 2 * time.Second}, Timeout: Duration{Duration: time.Second}}},
+		Logging:        Logging{Level: "info"},
+	}
+	tests := []struct {
+		name string
+		set  func(*Config)
+	}{
+		{"negative read timeout", func(c *Config) { c.Server.ReadTimeout.Duration = -time.Second }},
+		{"zero write timeout", func(c *Config) { c.Server.WriteTimeout.Duration = 0 }},
+		{"excessive idle timeout", func(c *Config) { c.Server.IdleTimeout.Duration = 25 * time.Hour }},
+		{"excessive shutdown timeout", func(c *Config) { c.Server.ShutdownTimeout.Duration = 6 * time.Minute }},
+		{"excessive poll interval", func(c *Config) {
+			c.Collectors.NUT.PollInterval.Duration = 25 * time.Hour
+			c.Collectors.NUT.StaleAfter.Duration = 26 * time.Hour
+		}},
+		{"negative protocol timeout", func(c *Config) { c.Collectors.NUT.Timeout.Duration = -time.Second }},
+		{"excessive protocol timeout", func(c *Config) { c.Collectors.NUT.Timeout.Duration = 6 * time.Minute }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := valid
+			tc.set(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected duration validation error")
+			}
+		})
+	}
+}
+
+// TestReadSecretRejectsUnsafeFilesAndContent verifies no-follow, regular-file, size, and control-character safeguards.
+func TestReadSecretRejectsUnsafeFilesAndContent(t *testing.T) {
+	d := t.TempDir()
+	regular := filepath.Join(d, "regular")
+	if err := os.WriteFile(regular, []byte("safe-secret-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d, "link")
+	if err := os.Symlink(regular, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(link); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	large := filepath.Join(d, "large")
+	if err := os.WriteFile(large, []byte(strings.Repeat("x", 4097)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(large); err == nil {
+		t.Fatal("oversized secret accepted")
+	}
+	control := filepath.Join(d, "control")
+	if err := os.WriteFile(control, []byte("valid-prefix\nsecond-line"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(control); err == nil {
+		t.Fatal("embedded control accepted")
+	}
+	fifo := filepath.Join(d, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSecret(fifo); err == nil {
+		t.Fatal("non-regular secret accepted")
+	}
+}
+
+// TestValidateSecretLengths verifies bearer and SNMPv3 credential length policy.
+func TestValidateSecretLengths(t *testing.T) {
+	for _, value := range []string{"short", "contains space token", "contains	control"} {
+		if err := validateSecret(value, 16, 4096, true); err == nil {
+			t.Errorf("bearer %q accepted", value)
+		}
+	}
+	for _, value := range []string{"1234567", strings.Repeat("x", 256)} {
+		if err := validateSecret(value, 8, 255, false); err == nil {
+			t.Errorf("SNMP passphrase length %d accepted", len(value))
+		}
 	}
 }

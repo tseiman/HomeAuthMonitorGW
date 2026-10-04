@@ -6,6 +6,8 @@
 package snmp
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	gosnmp "github.com/gosnmp/gosnmp"
@@ -26,5 +28,43 @@ func TestNewGoSNMPConfiguresV3AuthPrivSHA1DES(t *testing.T) {
 	}
 	if sp.AuthenticationProtocol != gosnmp.SHA || sp.PrivacyProtocol != gosnmp.DES {
 		t.Fatalf("protocols=%+v", sp)
+	}
+}
+
+// TestGetBatchesChunksThirtyThreeOIDs verifies requests never exceed GoSNMP's 32-OID limit.
+func TestGetBatchesChunksThirtyThreeOIDs(t *testing.T) {
+	oids := make([]string, 33)
+	for i := range oids {
+		oids[i] = ".1.3.6.1.4.1." + string(rune('A'+i))
+	}
+	var sizes []int
+	got, err := getBatches(oids, 32, func(batch []string) (*gosnmp.SnmpPacket, error) {
+		sizes = append(sizes, len(batch))
+		vars := make([]gosnmp.SnmpPDU, len(batch))
+		return &gosnmp.SnmpPacket{Variables: vars}, nil
+	})
+	if err != nil || len(got) != 33 || len(sizes) != 2 || sizes[0] != 32 || sizes[1] != 1 {
+		t.Fatalf("sizes=%v pdus=%d err=%v", sizes, len(got), err)
+	}
+}
+
+// TestWalkBoundedDeduplicatesRootsAndObjects verifies overlap is skipped and the object cap fails closed.
+func TestWalkBoundedDeduplicatesRootsAndObjects(t *testing.T) {
+	var walked []string
+	walk := func(root string, fn gosnmp.WalkFunc) error {
+		walked = append(walked, root)
+		for _, oid := range []string{".1.3.6.1.2.1.1", ".1.3.6.1.2.1.1", ".1.3.6.1.2.1.2"} {
+			if err := fn(gosnmp.SnmpPDU{Name: oid}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	_, err := walkBounded(context.Background(), []string{"1.3.6.1.2.1", ".1.3.6.1.2.1.1", "1.3.6.1.2.1"}, 1, walk)
+	if err == nil || !errors.Is(err, errDiscoveryLimit) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(walked) != 1 {
+		t.Fatalf("overlapping roots walked=%v", walked)
 	}
 }
