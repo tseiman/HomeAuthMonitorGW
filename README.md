@@ -71,6 +71,57 @@ Useful installer options:
 
 Existing configuration, metadata, tokens, SNMP/NUT secrets, NUT configuration, and TLS files are preserved. Binary and unit files are replaced only when their content changes. Adjacent `.previous` copies are retained before replacement. Rollback is always an operator decision; the installer never restores them automatically.
 
+### TLS and token permissions
+
+The installer preserves these site-owned files during installation and updates. Directories must be `root:automation-gateway` with mode `0750`; token, certificate, and private-key files must be `root:automation-gateway` with mode `0640`. The service may read credentials but must not replace them.
+
+Create or repair the directories:
+
+```bash
+sudo install -d -o root -g automation-gateway -m 0750 \
+  /etc/automation-gateway/tokens \
+  /etc/automation-gateway/tls
+```
+
+Install an existing certificate and key:
+
+```bash
+sudo install -o root -g automation-gateway -m 0640 \
+  /path/to/fullchain.pem /etc/automation-gateway/tls/server.crt
+sudo install -o root -g automation-gateway -m 0640 \
+  /path/to/private-key.pem /etc/automation-gateway/tls/server.key
+```
+
+Generate and install a URL-safe bearer token without printing it:
+
+```bash
+openssl rand -base64 32 | tr -d '=\n' | tr '/+' '_-' | \
+  sudo install -o root -g automation-gateway -m 0640 \
+  /dev/stdin /etc/automation-gateway/tokens/zabbix
+```
+
+Repair existing files and verify everything:
+
+```bash
+sudo chown root:automation-gateway \
+  /etc/automation-gateway/tokens/zabbix \
+  /etc/automation-gateway/tls/server.crt \
+  /etc/automation-gateway/tls/server.key
+sudo chmod 0640 \
+  /etc/automation-gateway/tokens/zabbix \
+  /etc/automation-gateway/tls/server.crt \
+  /etc/automation-gateway/tls/server.key
+
+stat -c '%U:%G:%a %n' \
+  /etc/automation-gateway/tokens \
+  /etc/automation-gateway/tokens/zabbix \
+  /etc/automation-gateway/tls \
+  /etc/automation-gateway/tls/server.crt \
+  /etc/automation-gateway/tls/server.key
+```
+
+Expected modes are `750` for both directories and `640` for all three files. Reference the token path under `authentication.bearer_token_files` and the certificate paths under `server.certificate` and `server.private_key`.
+
 For a manual build:
 
 ```bash
