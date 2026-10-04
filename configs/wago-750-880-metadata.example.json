@@ -1,0 +1,890 @@
+[
+  {
+    "oid": "1.3.6.1.2.1.1.1.0",
+    "name": "sysDescr",
+    "type": "DisplayString",
+    "description": "Vendor and model description reported by the controller."
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.2.0",
+    "name": "sysObjectID",
+    "type": "OBJECT IDENTIFIER",
+    "description": "Vendor object identifier; expected to remain stable for this controller family."
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.3.0",
+    "name": "sysUpTime",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "Time since the SNMP management subsystem was initialized. A decrease normally indicates a controller or SNMP subsystem restart."
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.4.0",
+    "name": "sysContact",
+    "type": "DisplayString",
+    "description": "Administrative contact configured on the controller."
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.5.0",
+    "name": "sysName",
+    "type": "DisplayString",
+    "description": "Administrative DNS-style name configured on the controller."
+  },
+  {
+    "oid": "1.3.6.1.2.1.1.6.0",
+    "name": "sysLocation",
+    "type": "DisplayString",
+    "description": "Physical plant, building, or cabinet location configured on the controller."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.2.1",
+    "name": "ifDescr[1]",
+    "type": "DisplayString",
+    "description": "Controller description of this network interface. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.2.2",
+    "name": "ifDescr[2]",
+    "type": "DisplayString",
+    "description": "Controller description of this network interface. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.2.3",
+    "name": "ifDescr[3]",
+    "type": "DisplayString",
+    "description": "Controller description of this network interface. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.2.4",
+    "name": "ifDescr[4]",
+    "type": "DisplayString",
+    "description": "Controller description of this network interface. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.5.1",
+    "name": "ifSpeed[1]",
+    "type": "Gauge32",
+    "unit": "bits per second",
+    "description": "Nominal interface bandwidth. Zero may mean the switch port is currently not linked. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.5.2",
+    "name": "ifSpeed[2]",
+    "type": "Gauge32",
+    "unit": "bits per second",
+    "description": "Nominal interface bandwidth. Zero may mean the switch port is currently not linked. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.5.3",
+    "name": "ifSpeed[3]",
+    "type": "Gauge32",
+    "unit": "bits per second",
+    "description": "Nominal interface bandwidth. Zero may mean the switch port is currently not linked. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.5.4",
+    "name": "ifSpeed[4]",
+    "type": "Gauge32",
+    "unit": "bits per second",
+    "description": "Nominal interface bandwidth. Zero may mean the switch port is currently not linked. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.7.1",
+    "name": "ifAdminStatus[1]",
+    "type": "INTEGER",
+    "description": "Configured administrative interface state. Interface index 1.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.7.2",
+    "name": "ifAdminStatus[2]",
+    "type": "INTEGER",
+    "description": "Configured administrative interface state. Interface index 2.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.7.3",
+    "name": "ifAdminStatus[3]",
+    "type": "INTEGER",
+    "description": "Configured administrative interface state. Interface index 3.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.7.4",
+    "name": "ifAdminStatus[4]",
+    "type": "INTEGER",
+    "description": "Configured administrative interface state. Interface index 4.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.8.1",
+    "name": "ifOperStatus[1]",
+    "type": "INTEGER",
+    "description": "Current operational interface state. Alert only on ports expected to be connected. Interface index 1.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing",
+      "4": "unknown",
+      "5": "dormant",
+      "6": "notPresent",
+      "7": "lowerLayerDown"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.8.2",
+    "name": "ifOperStatus[2]",
+    "type": "INTEGER",
+    "description": "Current operational interface state. Alert only on ports expected to be connected. Interface index 2.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing",
+      "4": "unknown",
+      "5": "dormant",
+      "6": "notPresent",
+      "7": "lowerLayerDown"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.8.3",
+    "name": "ifOperStatus[3]",
+    "type": "INTEGER",
+    "description": "Current operational interface state. Alert only on ports expected to be connected. Interface index 3.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing",
+      "4": "unknown",
+      "5": "dormant",
+      "6": "notPresent",
+      "7": "lowerLayerDown"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.8.4",
+    "name": "ifOperStatus[4]",
+    "type": "INTEGER",
+    "description": "Current operational interface state. Alert only on ports expected to be connected. Interface index 4.",
+    "enum": {
+      "1": "up",
+      "2": "down",
+      "3": "testing",
+      "4": "unknown",
+      "5": "dormant",
+      "6": "notPresent",
+      "7": "lowerLayerDown"
+    }
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.9.1",
+    "name": "ifLastChange[1]",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "sysUpTime value when the interface last changed operational state. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.9.2",
+    "name": "ifLastChange[2]",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "sysUpTime value when the interface last changed operational state. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.9.3",
+    "name": "ifLastChange[3]",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "sysUpTime value when the interface last changed operational state. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.9.4",
+    "name": "ifLastChange[4]",
+    "type": "TimeTicks",
+    "unit": "centiseconds",
+    "description": "sysUpTime value when the interface last changed operational state. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.10.1",
+    "name": "ifInOctets[1]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets received. This 32-bit counter can wrap and should be processed as a counter. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.10.2",
+    "name": "ifInOctets[2]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets received. This 32-bit counter can wrap and should be processed as a counter. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.10.3",
+    "name": "ifInOctets[3]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets received. This 32-bit counter can wrap and should be processed as a counter. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.10.4",
+    "name": "ifInOctets[4]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets received. This 32-bit counter can wrap and should be processed as a counter. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.13.1",
+    "name": "ifInDiscards[1]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets discarded without a detected packet error, for example because of resource pressure. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.13.2",
+    "name": "ifInDiscards[2]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets discarded without a detected packet error, for example because of resource pressure. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.13.3",
+    "name": "ifInDiscards[3]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets discarded without a detected packet error, for example because of resource pressure. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.13.4",
+    "name": "ifInDiscards[4]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets discarded without a detected packet error, for example because of resource pressure. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.14.1",
+    "name": "ifInErrors[1]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets containing errors. Sustained increases can indicate cabling, port, or EMC problems. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.14.2",
+    "name": "ifInErrors[2]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets containing errors. Sustained increases can indicate cabling, port, or EMC problems. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.14.3",
+    "name": "ifInErrors[3]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets containing errors. Sustained increases can indicate cabling, port, or EMC problems. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.14.4",
+    "name": "ifInErrors[4]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Received packets containing errors. Sustained increases can indicate cabling, port, or EMC problems. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.16.1",
+    "name": "ifOutOctets[1]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets transmitted. This 32-bit counter can wrap and should be processed as a counter. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.16.2",
+    "name": "ifOutOctets[2]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets transmitted. This 32-bit counter can wrap and should be processed as a counter. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.16.3",
+    "name": "ifOutOctets[3]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets transmitted. This 32-bit counter can wrap and should be processed as a counter. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.16.4",
+    "name": "ifOutOctets[4]",
+    "type": "Counter32",
+    "unit": "octets",
+    "description": "Total octets transmitted. This 32-bit counter can wrap and should be processed as a counter. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.19.1",
+    "name": "ifOutDiscards[1]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets discarded without a detected packet error. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.19.2",
+    "name": "ifOutDiscards[2]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets discarded without a detected packet error. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.19.3",
+    "name": "ifOutDiscards[3]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets discarded without a detected packet error. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.19.4",
+    "name": "ifOutDiscards[4]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets discarded without a detected packet error. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.20.1",
+    "name": "ifOutErrors[1]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets that could not be transmitted because of errors. Interface index 1."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.20.2",
+    "name": "ifOutErrors[2]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets that could not be transmitted because of errors. Interface index 2."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.20.3",
+    "name": "ifOutErrors[3]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets that could not be transmitted because of errors. Interface index 3."
+  },
+  {
+    "oid": "1.3.6.1.2.1.2.2.1.20.4",
+    "name": "ifOutErrors[4]",
+    "type": "Counter32",
+    "unit": "packets",
+    "description": "Outbound packets that could not be transmitted because of errors. Interface index 4."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.1.0",
+    "name": "wioArticleName",
+    "type": "DisplayString",
+    "description": "WAGO article number reported by the controller."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.2.0",
+    "name": "wioArticleDescription",
+    "type": "DisplayString",
+    "description": "WAGO product-family description reported by the controller."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.3.0",
+    "name": "wioSerialNumber",
+    "type": "DisplayString",
+    "description": "Controller serial and hardware identity string. Treat this as asset-identification data."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.10.1.0",
+    "name": "wioFirmwareIndex",
+    "type": "INTEGER",
+    "description": "Vendor firmware revision index used for asset and compatibility tracking."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.10.2.0",
+    "name": "wioHardwareIndex",
+    "type": "INTEGER",
+    "description": "Vendor hardware revision index used for asset tracking."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.10.3.0",
+    "name": "wioFwlIndex",
+    "type": "INTEGER",
+    "description": "Revision index of the firmware-loader software."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.10.4.0",
+    "name": "wioFirmwareVersion",
+    "type": "DisplayString",
+    "description": "Complete human-readable controller firmware version."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.11.5.0",
+    "name": "wioRtcBatteryStatus",
+    "type": "INTEGER",
+    "description": "Real-time-clock backup battery condition. A value of 1 means the battery is empty.",
+    "enum": {
+      "0": "ok",
+      "1": "batteryEmpty"
+    }
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.20.1.0",
+    "name": "wioErrorGroup",
+    "type": "INTEGER",
+    "description": "Current WAGO diagnostic error group. Interpret together with error code, argument, and description."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.20.2.0",
+    "name": "wioErrorCode",
+    "type": "INTEGER",
+    "description": "Current WAGO diagnostic error code. Zero was observed while the controller reported normal operation."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.20.3.0",
+    "name": "wioErrorArgument",
+    "type": "INTEGER",
+    "description": "Additional argument for the current WAGO diagnostic error."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.20.4.0",
+    "name": "wioErrorDescription",
+    "type": "DisplayString",
+    "description": "Human-readable current WAGO diagnostic status or error description."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.1.0",
+    "name": "wioProjectId",
+    "type": "INTEGER",
+    "description": "Numeric identifier of the loaded CODESYS project; a change can indicate a new download."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.3.0",
+    "name": "wioProjectName",
+    "type": "DisplayString",
+    "description": "Name of the loaded CODESYS project."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.5.0",
+    "name": "wioProjectVersion",
+    "type": "DisplayString",
+    "description": "Version string stored in the loaded CODESYS project. It may be empty if the project does not define one."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.2.1",
+    "name": "wioIecTaskName[1]",
+    "type": "DisplayString",
+    "description": "Configured name of this IEC task."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.3.1",
+    "name": "wioIecTaskStatus[1]",
+    "type": "INTEGER",
+    "description": "Current IEC task status. The vendor MIB does not define numeric RUN/STOP meanings; observe controlled RUN and STOP states before creating a trigger."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.4.1",
+    "name": "wioIecTaskMode[1]",
+    "type": "INTEGER",
+    "description": "Current IEC task mode. The vendor MIB does not define the numeric meanings."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.9.1",
+    "name": "wioIecTaskCycleTime[1]",
+    "type": "INTEGER",
+    "description": "Most recent execution cycle time for this IEC task; the vendor MIB does not specify the unit."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.10.1",
+    "name": "wioIecTaskCycleTimeMin[1]",
+    "type": "INTEGER",
+    "description": "Minimum observed execution cycle time for this IEC task; the vendor MIB does not specify the unit."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.11.1",
+    "name": "wioIecTaskCycleTimeMax[1]",
+    "type": "INTEGER",
+    "description": "Maximum observed execution cycle time for this IEC task; the vendor MIB does not specify the unit."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.30.9.1.12.1",
+    "name": "wioIecTaskCycleTimeAvg[1]",
+    "type": "INTEGER",
+    "description": "Average observed execution cycle time for this IEC task; the vendor MIB does not specify the unit."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.40.6.3.0",
+    "name": "wioMaxConnections",
+    "type": "INTEGER",
+    "unit": "connections",
+    "description": "Maximum number of Modbus connections supported by the controller."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.40.6.7.0",
+    "name": "wioFreeModbusSockets",
+    "type": "INTEGER",
+    "unit": "connections",
+    "description": "Currently unused Modbus connection slots. A sustained value near zero indicates connection exhaustion."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.1.0",
+    "name": "wioModulCount",
+    "type": "INTEGER",
+    "unit": "modules",
+    "description": "Number of I/O modules detected on the K-bus. An unexpected change can indicate a missing module or K-bus problem."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.1",
+    "name": "wioModuleNumber[1]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.2",
+    "name": "wioModuleNumber[2]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.3",
+    "name": "wioModuleNumber[3]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.4",
+    "name": "wioModuleNumber[4]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.5",
+    "name": "wioModuleNumber[5]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.6",
+    "name": "wioModuleNumber[6]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.7",
+    "name": "wioModuleNumber[7]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.8",
+    "name": "wioModuleNumber[8]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.9",
+    "name": "wioModuleNumber[9]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.10",
+    "name": "wioModuleNumber[10]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.11",
+    "name": "wioModuleNumber[11]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.12",
+    "name": "wioModuleNumber[12]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.13",
+    "name": "wioModuleNumber[13]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.14",
+    "name": "wioModuleNumber[14]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.15",
+    "name": "wioModuleNumber[15]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.16",
+    "name": "wioModuleNumber[16]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.17",
+    "name": "wioModuleNumber[17]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.18",
+    "name": "wioModuleNumber[18]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.19",
+    "name": "wioModuleNumber[19]",
+    "type": "INTEGER",
+    "description": "Module slot number in the K-bus inventory."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.1",
+    "name": "wioModuleName[1]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.2",
+    "name": "wioModuleName[2]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.3",
+    "name": "wioModuleName[3]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.4",
+    "name": "wioModuleName[4]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.5",
+    "name": "wioModuleName[5]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.6",
+    "name": "wioModuleName[6]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.7",
+    "name": "wioModuleName[7]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.8",
+    "name": "wioModuleName[8]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.9",
+    "name": "wioModuleName[9]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.10",
+    "name": "wioModuleName[10]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.11",
+    "name": "wioModuleName[11]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.12",
+    "name": "wioModuleName[12]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.13",
+    "name": "wioModuleName[13]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.14",
+    "name": "wioModuleName[14]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.15",
+    "name": "wioModuleName[15]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.16",
+    "name": "wioModuleName[16]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.17",
+    "name": "wioModuleName[17]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.18",
+    "name": "wioModuleName[18]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.2.19",
+    "name": "wioModuleName[19]",
+    "type": "DisplayString",
+    "description": "WAGO module article or family name reported for this K-bus slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.1",
+    "name": "wioModuleType[1]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.2",
+    "name": "wioModuleType[2]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.3",
+    "name": "wioModuleType[3]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.4",
+    "name": "wioModuleType[4]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.5",
+    "name": "wioModuleType[5]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.6",
+    "name": "wioModuleType[6]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.7",
+    "name": "wioModuleType[7]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.8",
+    "name": "wioModuleType[8]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.9",
+    "name": "wioModuleType[9]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.10",
+    "name": "wioModuleType[10]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.11",
+    "name": "wioModuleType[11]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.12",
+    "name": "wioModuleType[12]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.13",
+    "name": "wioModuleType[13]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.14",
+    "name": "wioModuleType[14]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.15",
+    "name": "wioModuleType[15]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.16",
+    "name": "wioModuleType[16]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.17",
+    "name": "wioModuleType[17]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.18",
+    "name": "wioModuleType[18]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.3.19",
+    "name": "wioModuleType[19]",
+    "type": "INTEGER",
+    "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  }
+]

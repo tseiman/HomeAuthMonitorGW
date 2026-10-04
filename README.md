@@ -298,6 +298,20 @@ sudo install -o root -g automation-gateway -m 0640 \
 
 Then set `sources[].snmp.metadata_file`, add the required numeric OIDs to the configured allowlist, and run the configuration check. `mib2json` never contacts a device and accepts no address or credentials. Review MIB licensing before redistributing vendor files or generated descriptions.
 
+For a WAGO 750-880, [`configs/wago-750-880-metadata.example.json`](configs/wago-750-880-metadata.example.json) provides 132 reviewed, instance-specific definitions for system identity, interface health, firmware, diagnostics, IEC task health, Modbus capacity, and the discovered 19-slot K-bus inventory. Its descriptions are operational guidance rather than copied MIB prose. In particular, it does not invent undocumented numeric meanings for IEC task status or mode.
+
+```bash
+sudo install -o root -g automation-gateway -m 0640 \
+  configs/wago-750-880-metadata.example.json \
+  /etc/automation-gateway/wago-750-880-metadata.json
+```
+
+Reference it in the matching source and reload only after a successful configuration check:
+
+```yaml
+metadata_file: "/etc/automation-gateway/wago-750-880-metadata.json"
+```
+
 ## API and Zabbix
 
 Every endpoint requires both an allowed TCP peer and a bearer token:

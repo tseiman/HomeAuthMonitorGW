@@ -80,3 +80,19 @@ func TestLoadMetadataRejectsUnknownFields(t *testing.T) {
 		t.Fatal("expected unknown field error")
 	}
 }
+
+// TestWAGO750880ExampleMetadata verifies the checked-in device sample remains valid, complete, and instance-specific.
+func TestWAGO750880ExampleMetadata(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "configs", "wago-750-880-metadata.example.json")
+	metadata, err := LoadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata) != 132 {
+		t.Fatalf("definitions=%d want 132", len(metadata))
+	}
+	task := metadata["1.3.6.1.4.1.13576.10.1.30.9.1.3.1"]
+	if task.Name != "wioIecTaskStatus[1]" || task.Description == "" {
+		t.Fatalf("task metadata=%+v", task)
+	}
+}
