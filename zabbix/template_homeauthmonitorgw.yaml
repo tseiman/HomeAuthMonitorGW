@@ -1236,17 +1236,21 @@ zabbix_export:
                       value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_cycle_time}
                     - {type: STRING, name: reference, value: WAGOC}
                     - {type: INTEGER, name: source_type, value: '1'}
-                - type: plaintext
+                - type: itemhistory
                   name: 'CODESYS software'
                   'y': '11'
                   width: '24'
                   height: '8'
                   fields:
                     - type: ITEM
-                      name: itemids.0
+                      name: columns.0.itemid
                       value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.software_info}
-                    - {type: INTEGER, name: show_lines, value: '25'}
-                - type: plaintext
+                    - {type: INTEGER, name: columns.0.monospace_font, value: '1'}
+                    - {type: STRING, name: columns.0.name, value: 'CODESYS software'}
+                    - {type: STRING, name: reference, value: WAGOS}
+                    - {type: INTEGER, name: show_column_header, value: '0'}
+                    - {type: INTEGER, name: show_lines, value: '1'}
+                - type: itemhistory
                   name: 'K-bus modules'
                   x: '24'
                   'y': '11'
@@ -1254,9 +1258,13 @@ zabbix_export:
                   height: '8'
                   fields:
                     - type: ITEM
-                      name: itemids.0
+                      name: columns.0.itemid
                       value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.module_inventory}
-                    - {type: INTEGER, name: show_lines, value: '30'}
+                    - {type: INTEGER, name: columns.0.monospace_font, value: '1'}
+                    - {type: STRING, name: columns.0.name, value: 'K-bus modules'}
+                    - {type: STRING, name: reference, value: WAGOM}
+                    - {type: INTEGER, name: show_column_header, value: '0'}
+                    - {type: INTEGER, name: show_lines, value: '1'}
         - uuid: 19e2d6468bf247559654c20985335243
           name: 'Phoenix Contact UPS'
           pages:

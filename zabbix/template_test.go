@@ -507,25 +507,38 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		t.Fatalf("module inventory triggers=%+v", signature.triggers)
 	}
 	widgets := map[string]string{}
+	widgetSettings := map[string]map[string]any{}
 	for _, dashboard := range template.Dashboards {
 		if dashboard.Name != "WAGO 750-880" {
 			continue
 		}
 		for _, page := range dashboard.Pages {
 			for _, widget := range page.Widgets {
+				if widget.Type == "plaintext" {
+					t.Fatalf("Zabbix 7.4 has no plaintext widget: %+v", widget)
+				}
+				settings := map[string]any{}
 				for _, field := range widget.Fields {
-					if field.Name != "itemids.0" {
+					settings[field.Name] = field.Value
+					if field.Name != "columns.0.itemid" {
 						continue
 					}
 					if value, ok := field.Value.(map[string]any); ok {
 						widgets[widget.Name] = widget.Type + ":" + value["key"].(string)
 					}
 				}
+				widgetSettings[widget.Name] = settings
 			}
 		}
 	}
-	if widgets["CODESYS software"] != "plaintext:automation.gateway.wago.software_info" || widgets["K-bus modules"] != "plaintext:automation.gateway.wago.module_inventory" {
+	if widgets["CODESYS software"] != "itemhistory:automation.gateway.wago.software_info" || widgets["K-bus modules"] != "itemhistory:automation.gateway.wago.module_inventory" {
 		t.Fatalf("WAGO text widgets=%v", widgets)
+	}
+	for _, name := range []string{"CODESYS software", "K-bus modules"} {
+		settings := widgetSettings[name]
+		if settings["show_lines"] != "1" || settings["show_column_header"] != "0" || settings["columns.0.monospace_font"] != "1" {
+			t.Fatalf("WAGO text widget %q settings=%v", name, settings)
+		}
 	}
 }
 
