@@ -519,6 +519,56 @@ zabbix_export:
               value: inventory
             - tag: device
               value: wago
+        - uuid: d7a89b3c4e5f4abc9000000000000001
+          name: 'WAGO: K-bus layout JSON'
+          type: DEPENDENT
+          key: automation.gateway.wago.kbus_layout
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Structured JSON consumed by the wago_kbus dashboard widget. Contains the controller article number (from wioArticleName) and the ordered K-bus module list. Used by the widget only; do not use as a text inventory replacement.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var source = snapshot['{$WAGO_SOURCE}'];
+                  if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+                  var controllerArticle = null;
+                  var slots = {};
+                  source.metrics.forEach(function (metric) {
+                      if (metric.name === 'wioArticleName') {
+                          controllerArticle = String(metric.value);
+                      }
+                      var match = /^wioModule(Number|Name|Type)\[(\d+)\]$/.exec(metric.name);
+                      if (!match) return;
+                      var index = Number(match[2]);
+                      if (!slots[index]) slots[index] = {slot: index};
+                      slots[index][match[1].toLowerCase()] = metric.value;
+                  });
+                  var modules = Object.keys(slots)
+                      .map(function (i) { return slots[i]; })
+                      .filter(function (m) { return m.name != null; });
+                  modules.sort(function (a, b) {
+                      return Number(a.number || a.slot) - Number(b.number || b.slot);
+                  });
+                  return JSON.stringify({
+                      controller: controllerArticle,
+                      modules: modules.map(function (m) {
+                          return {
+                              slot: Number(m.number || m.slot),
+                              article: String(m.name),
+                              type: m.type == null ? null : Number(m.type)
+                          };
+                      })
+                  });
+          tags:
+            - tag: component
+              value: inventory
+            - tag: device
+              value: wago
         - uuid: 9464045cf8da483a8ecfb006dda6b3fd
           name: 'WAGO: K-bus module inventory signature'
           type: DEPENDENT
@@ -1161,7 +1211,7 @@ zabbix_export:
           description: 'Gateway source name used by the WAGO core items and dashboard.'
         - macro: '{$WAGO_MODULE_DESCRIPTIONS}'
           value: '{"750-652/000-000":"Serial interface"}'
-          description: 'Valid JSON object mapping reported WAGO module article strings to operator-friendly descriptions. This affects display only, not the inventory-change trigger.'
+          description: 'Compatibility shim used only by the automation.gateway.wago.module_inventory text item. The canonical, user-editable description table now lives in the wago_kbus widget source (widget.view.php $WAGO_DESCRIPTIONS). Minimum preserved entry: 750-652/000-000 = Serial interface.'
         - macro: '{$PHOENIX_SOURCE}'
           value: 'ups-main'
           description: 'Gateway source name used by the Phoenix Contact UPS core items and dashboard.'
@@ -1428,33 +1478,20 @@ zabbix_export:
                     - type: INTEGER
                       name: show.0
                       value: '2'
-                - type: itemhistory
+                - type: wago_kbus
                   name: 'K-bus modules'
                   x: '24'
                   'y': '9'
                   width: '24'
                   height: '8'
                   fields:
-                    - type: ITEM
-                      name: columns.0.itemid
+                    - type: HOST
+                      name: hostid.0
                       value:
                         host: 'Template HomeAuthMonitorGW by HTTP'
-                        key: automation.gateway.wago.module_inventory
-                    - type: INTEGER
-                      name: columns.0.monospace_font
-                      value: '1'
-                    - type: STRING
-                      name: columns.0.name
-                      value: 'K-bus modules'
                     - type: STRING
                       name: reference
                       value: WAGOM
-                    - type: INTEGER
-                      name: show_column_header
-                      value: '0'
-                    - type: INTEGER
-                      name: show_lines
-                      value: '1'
                 - type: item
                   name: 'RTC battery'
                   x: '26'

@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   version="1.1"
+   viewBox="-67.6 -128.75 130.05667 204.5"
+   width="130.05667"
+   height="204.5"
+   id="svg100"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <defs
+     id="defs100" />
+  <title
+     id="title1">WAGO 750-880 — Ethernet Controller</title>
+  <desc
+     id="desc1">Converted from the supplied QElectroTech element. Original author: plc-user for QElectroTech. License: https://qelectrotech.org/wiki_new/doc/elements_license . Empty dynamic label omitted. Qt point sizes converted at 96 dpi; thin strokes use 0.5 drawing units. Colors follow QElectroTech/Qt (green #00ff00, gray #a0a0a4, lightgray #c0c0c0, orange #ff8000).</desc>
+  <g
+     stroke-linejoin="bevel"
+     stroke-linecap="square"
+     id="g100">
+    <polygon
+       fill="#ffffff"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="60,-123.5 56,-123.5 56,-119.5 53,-119.5 53,-120.5 46,-120.5 46,-117.5 38,-117.5 38,-123.5 46,-123.5 46,-126.5 30,-126.5 30,-120.5 32,-120.5 32,-124.5 36,-124.5 36,71.5 32,71.5 32,67.5 30,67.5 30,73.5 46,73.5 46,70.5 38,70.5 38,66.5 46,66.5 46,67.5 56,67.5 56,70.5 60,70.5"
+       id="polygon1" />
+    <rect
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       x="36"
+       y="-82.5"
+       width="24"
+       height="8"
+       rx="0"
+       ry="0"
+       id="rect1" />
+    <rect
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       x="36"
+       y="24.5"
+       width="24"
+       height="8"
+       rx="0"
+       ry="0"
+       id="rect2" />
+    <rect
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       x="36"
+       y="-115"
+       width="24"
+       height="8"
+       rx="0"
+       ry="0"
+       id="rect3" />
+    <rect
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       x="36"
+       y="-49.5"
+       width="24"
+       height="8"
+       rx="0"
+       ry="0"
+       id="rect4" />
+    <rect
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       x="36"
+       y="-12.5"
+       width="24"
+       height="8"
+       rx="0"
+       ry="0"
+       id="rect5" />
+    <polygon
+       fill="#ffffff"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="36,70.52 32.32,70.52 32.32,66.52 -57.94,66.52 -59.95,64.52 -59.95,-117.5 -57.94,-119.51 32.32,-119.51 32.32,-123.5 36,-123.5 36,-17.45 30.92,-17.45 30.92,-14.46 36,-14.46 36,19.55 30.92,19.55 30.92,22.55 36,22.55 36,56.56 30.92,56.56 30.92,59.56 36,59.56"
+       id="polygon39" />
+    <polygon
+       fill="#00ff00"
+       stroke="none"
+       stroke-width="0.5"
+       points="-7.8,-74.68 -8.23,-74.8 -8.54,-75.05 -8.74,-75.32 -8.87,-75.68 -8.87,-83.95 -5.54,-83.95 -5.54,-77.89 -2.59,-77.89 -2.59,-80.73 -3.56,-80.73 -3.56,-79.32 -4.58,-79.32 -4.58,-83.95 -0.3,-83.95 0.22,-83.8 0.48,-83.57 0.66,-83.27 0.75,-82.86 0.75,-75.77 0.65,-75.34 0.44,-75.05 0.18,-74.84 -0.28,-74.68"
+       id="polygon41" />
+    <polygon
+       fill="#00ff00"
+       stroke="none"
+       stroke-width="0.5"
+       points="1.79,-65.26 1.79,-66.66 4.17,-61.78 1.79,-60.28 1.8,-61.43 -8.87,-68.11 -8.87,-73.52 0.74,-73.52 0.74,-70.32 -0.93,-70.32 -0.93,-67"
+       id="polygon42" />
+    <polygon
+       fill="#00ff00"
+       stroke="none"
+       stroke-width="0.5"
+       points="-8.87,-53.44 -4.42,-53.44 -8.87,-56.27 -8.87,-60.1 -4.41,-60.1 -9.94,-63.55 -9.94,-62.08 -12.31,-67 -9.92,-68.47 -9.92,-67.43 0.74,-60.75 0.74,-56.87 -3.75,-56.87 0.74,-54.06 0.74,-50.23 -8.87,-50.23"
+       id="polygon43" />
+    <polygon
+       fill="#00ff00"
+       stroke="none"
+       stroke-width="0.5"
+       points="-7.8,-85.11 -8.23,-85.22 -8.54,-85.48 -8.74,-85.75 -8.87,-86.11 -8.87,-93.32 -8.78,-93.72 -8.55,-94 -8.31,-94.21 -7.77,-94.38 -0.3,-94.38 0.22,-94.23 0.48,-94 0.66,-93.71 0.75,-93.28 0.75,-86.19 0.65,-85.77 0.44,-85.48 0.18,-85.27 -0.28,-85.11"
+       id="polygon44" />
+    <polygon
+       fill="#ffffff"
+       stroke="none"
+       stroke-width="0.5"
+       points="-5.54,-88.29 -5.54,-91.17 -2.59,-91.17 -2.59,-88.29"
+       id="polygon45" />
+    <polygon
+       fill="#ffffff"
+       stroke="none"
+       stroke-width="0.5"
+       points="-2.59,-68 -2.59,-70.32 -6.23,-70.32"
+       id="polygon47" />
+    <polygon
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-59.92,-37.93 -65.35,-37.93 -65.35,-42.88 -59.92,-42.88"
+       id="polygon63" />
+    <polygon
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-59.92,-20.82 -65.35,-20.82 -65.35,-37.93 -59.92,-37.93"
+       id="polygon64" />
+    <polygon
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-65.35,-20.82 -59.92,-20.82 -59.92,-17.92 -65.35,-17.92"
+       id="polygon65" />
+    <polygon
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-59.92,-13.95 -65.35,-13.95 -65.35,-17.92 -59.92,-17.92"
+       id="polygon66" />
+    <polygon
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="33.25,-2.52 36.13,-2.52 36.13,15.78 33.25,15.78"
+       id="polygon67" />
+    <polyline
+       fill="#ff8000"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="33.25,6.33 36.14,6.33"
+       id="polyline67" />
+    <polygon
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-16.16,-119.53 -16.16,66.5 -18.05,64.45 -18.05,-117.43"
+       id="polygon70" />
+    <polygon
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-15.6,-104.46 35.56,-104.46 35.56,-118.47 -15.6,-118.47"
+       id="polygon71" />
+    <polygon
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-13.47,-108 33.43,-108 33.43,-116 -13.47,-116"
+       id="polygon72" />
+    <g
+       data-qet-type="dynamic_text"
+       data-info-name="label"
+       aria-hidden="true"
+       id="g74" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="35.68,59.42 35.68,59.3 35.59,59.22 35.48,59.22"
+       id="polyline87" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-18.05,-117.43 -57.87,-117.43"
+       id="polyline89" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-57.91,-119.52 -57.91,66.57"
+       id="polyline90" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-18.05,-35.2 -57.87,-35.2"
+       id="polyline91" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-18.05,-12.5 -57.87,-12.5"
+       id="polyline92" />
+    <polyline
+       fill="none"
+       stroke="#000000"
+       stroke-width="0.5"
+       points="-18.05,64.49 -57.87,64.49"
+       id="polyline93" />
+    <text
+       x="-4.8800001"
+       y="3.0899999"
+       font-family="'Liberation Sans', Arial, sans-serif"
+       font-size="6.66667px"
+       font-weight="400"
+       fill="#000000"
+       transform="rotate(-90,-4.88,3.09)"
+       id="text93">750-???</text>
+  </g>
+  <metadata
+     id="metadata100">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:title>WAGO 750-880 — Ethernet Controller</dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+</svg>

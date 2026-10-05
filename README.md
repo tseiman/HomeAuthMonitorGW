@@ -22,6 +22,7 @@ HomeAuthMonitorGW is a small, read-only Linux monitoring gateway. It polls confi
 - [MIB metadata with `mib2json`](#mib-metadata-with-mib2json)
   - [Which MIB files are needed?](#which-mib-files-are-needed)
 - [API and Zabbix](#api-and-zabbix)
+  - [WAGO K-bus Visualizer widget](#wago-k-bus-visualizer-widget)
   - [Per-collector health events for Honeycomb](#per-collector-health-events-for-honeycomb)
 - [Update and rollback](#update-and-rollback)
 - [Security summary](#security-summary)
@@ -353,7 +354,7 @@ Two independent device views are included:
 
 The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Their defaults match the example deployment (`wago-750-880-snmp3` and `ups-main`); override them at host level when source names differ. Phoenix warning and critical thresholds are controlled by `{$PHOENIX_BATTERY_WARNING}`, `{$PHOENIX_BATTERY_CRITICAL}`, `{$PHOENIX_TEMPERATURE_WARNING}`, and `{$PHOENIX_TEMPERATURE_CRITICAL}`. The WAGO and Phoenix health items and triggers are separate. An error in one collector does not change the other collector's individual health.
 
-`{$WAGO_MODULE_DESCRIPTIONS}` is a valid JSON object that adds operator-friendly meanings to reported module articles in the dashboard, for example `{"750-652/000-000":"Serial interface"}`. Extend or override this macro at host level. It affects display only; description changes cannot fire the hardware inventory trigger.
+`{$WAGO_MODULE_DESCRIPTIONS}` is kept as a compatibility shim consumed only by the `automation.gateway.wago.module_inventory` text item. The canonical, user-editable description table is now maintained in the **wago_kbus widget source** (`zabbix/modules/wago_kbus/views/widget.view.php`, the `$WAGO_DESCRIPTIONS` array). It ships with entries for the most common 750-series modules and requires a widget update — not a template re-import — when new articles are added.
 
 Every source discovered later also receives its own `automation.gateway.source.health["<source>"]` item automatically. All individual and overall Zabbix health item names start with `TS Service health: `, so `{{ITEM.NAME}.regsub("^TS Service health: (.*)$", "\1")}` returns the service name. All use the same three values:
 
@@ -362,6 +363,140 @@ Every source discovered later also receives its own `automation.gateway.source.h
 - `2` — **Real issue / unavailable**: the collector is unavailable, a confirmed device error is present, or a critical threshold is crossed.
 
 `automation.gateway.health.overall` is the layer above every collector. The highest state wins (`max`), so a real issue (`2`) dominates degraded (`1`) and good (`0`). Before the HTTPS master item has received its first snapshot, dependent items cannot have a value; the separate master-item `nodata(...,5m)` trigger covers that condition. A valid snapshot with no configured sources returns degraded (`1`).
+
+### WAGO K-bus Visualizer widget
+
+The **wago_kbus** custom widget renders a horizontal SVG rail of the WAGO controller and all
+K-bus modules in numeric slot order. It is included in the WAGO 750-880 dashboard as a
+replacement for the plain-text K-bus inventory widget. It supports 19+ modules through
+horizontal scrolling and shows a tooltip with article number, description, and type code on
+hover.
+
+#### Prerequisites
+
+- PHP 8.x (the Zabbix frontend PHP version).
+- Zabbix 7.4 with module management enabled (`Administration → General → Modules`).
+- The HomeAuthMonitorGW Zabbix template imported (this provides the
+  `automation.gateway.wago.kbus_layout` item that the widget reads).
+
+#### Widget installation
+
+```bash
+# Clone or update the repository first:
+git clone https://github.com/tseiman/HomeAuthMonitorGW.git
+cd HomeAuthMonitorGW
+
+# Copy the widget to the Zabbix modules directory (adjust path if different):
+sudo cp -r zabbix/modules/wago_kbus /usr/share/zabbix/modules/
+sudo chown -R www-data:www-data /usr/share/zabbix/modules/wago_kbus
+```
+
+Or use the provided helper which also validates the destination directory:
+
+```bash
+sudo ./scripts/install_widget.sh
+# Pass --dry-run to preview without making changes:
+./scripts/install_widget.sh --dry-run
+# Override the Zabbix modules path:
+sudo ./scripts/install_widget.sh --zabbix-modules-dir /var/www/html/zabbix/modules
+```
+
+#### Enable the widget in Zabbix
+
+1. In the Zabbix web UI: **Administration → General → Modules**.
+2. Click **Scan directory** if *WAGO K-bus Visualizer* does not appear.
+3. Click the **Disabled** toggle to enable the module.
+
+#### Template import / update
+
+```bash
+# First import: via Zabbix UI → Configuration → Templates → Import
+# zabbix/template_homeauthmonitorgw.yaml
+
+# Or with Zabbix CLI (example using zabbix_sender is not applicable here; use UI import).
+```
+
+Import `zabbix/template_homeauthmonitorgw.yaml` through the Zabbix UI.  Select "Update" for all
+object types when re-importing over an existing version of the template.  The
+`automation.gateway.wago.kbus_layout` item (added in this release) will be created
+automatically.  The WAGO 750-880 dashboard will now show the K-bus Visualizer widget at
+position (x=24, y=9) instead of the previous text-based inventory widget.
+
+#### Controller SVG identification
+
+The widget reads the `wioArticleName` SNMP metric (OID `1.3.6.1.4.1.13576.10.1.1.0`) to
+determine the controller model.  If your WAGO gateway configuration includes this OID (it is in
+`configs/wago-750-880-metadata.example.json`), the widget will select the matching SVG
+automatically.  If `wioArticleName` is not collected, the generic controller fallback SVG
+(`wago_0750-xxxx_controller.svg`) is used instead.
+
+**Current controller SVG mapping:**
+
+| Article | SVG file |
+|---------|----------|
+| 750-880 | `wago_0750-0880.svg` |
+| All others | `wago_0750-xxxx_controller.svg` (fallback) |
+
+#### Module SVG matching rules
+
+- **Concrete article** such as `750-511` or `750-511/000-002`: the variant suffix is stripped,
+  the base article is looked up in the server-side allowlist, and the matching SVG is served.
+- **Wildcard/family pattern** such as `750-5xx` or `750-4xx`: the lowercase `x` marks a
+  non-concrete identifier; these always use the generic module fallback
+  (`wago_0750-xxxx_modul.svg`).
+
+**Current module SVG mapping:**
+
+| Article (base) | SVG file |
+|----------------|----------|
+| 750-511 | `wago_0750-0511.svg` |
+| All others | `wago_0750-xxxx_modul.svg` (fallback) |
+
+#### Adding a new module SVG
+
+1. Obtain the `.elmt` source from the qelectrotech-elements repository (CC BY 4.0; see
+   `tooling/qet_to_svg/PROVENANCE.md` for full attribution requirements).
+
+   ```bash
+   # Fetch one element — replace the path with the actual upstream path:
+   curl -sSL \
+     "https://raw.githubusercontent.com/qelectrotech/qelectrotech-elements/master/sources/industrial/WAGO/750-NNN/element.elmt" \
+     -o wago_0750-NNNN.elmt
+
+   # Convert to SVG:
+   python3 tooling/qet_to_svg/qet_to_svg.py wago_0750-NNNN.elmt \
+     -o zabbix/modules/wago_kbus/assets/img/ --force
+   ```
+
+2. Add the article base → filename mapping to `$SVG_MODULE_MAP` in
+   `zabbix/modules/wago_kbus/views/widget.view.php`.
+
+3. Optionally add a human-readable description to `$WAGO_DESCRIPTIONS` in the same file.
+
+4. Re-install the widget: `sudo ./scripts/install_widget.sh`.
+
+5. Run the widget tests to confirm no regressions:
+   ```bash
+   go test ./zabbix/...
+   ```
+
+#### Verification
+
+After installation and template import:
+
+```bash
+# Verify the item exists and returns data (replace HOST and ZABBIX_URL):
+# In Zabbix UI: Monitoring → Latest data → filter host → search "kbus_layout"
+
+# Check the item preprocessing runs correctly (run from this directory):
+go test ./zabbix/... -run TestKbusLayout -v
+
+# Verify SVG assets are well-formed:
+go test ./zabbix/... -run TestWidgetSvg -v
+
+# Full widget test suite (PHP tests require php CLI):
+go test ./zabbix/... -v
+```
 
 ### Per-collector health events for Honeycomb
 

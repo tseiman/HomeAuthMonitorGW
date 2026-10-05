@@ -126,7 +126,7 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		t.Fatalf("template groups=%+v", document.Export.TemplateGroups)
 	}
 	template := document.Export.Templates[0]
-	if len(template.Items) != 24 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
+	if len(template.Items) != 25 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
 		t.Fatalf("master items=%+v", template.Items)
 	}
 	for _, item := range template.Items[1:] {
@@ -217,7 +217,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 51 {
+	if len(seen) != 52 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -426,7 +426,7 @@ func TestDashboardLayoutMatchesUserExport(t *testing.T) {
 			"RTC battery": {"26", "0", "10", "", "item"}, "Firmware": {"36", "0", "12", "", "item"},
 			"Diagnostic": {"0", "2", "24", "", "item"}, "Error code": {"24", "2", "12", "", "item"},
 			"IEC task status": {"36", "2", "12", "", "item"}, "<graph>": {"0", "4", "48", "5", "svggraph"},
-			"CODESYS software": {"0", "9", "24", "8", "itemhistory"}, "K-bus modules": {"24", "9", "24", "8", "itemhistory"},
+			"CODESYS software": {"0", "9", "24", "8", "itemhistory"}, "K-bus modules": {"24", "9", "24", "8", "wago_kbus"},
 		},
 	}
 	for _, dashboard := range document.Export.Templates[0].Dashboards {
@@ -633,6 +633,7 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		t.Fatalf("module inventory triggers=%+v", signature.triggers)
 	}
 	widgets := map[string]string{}
+	widgetTypes := map[string]string{}
 	widgetSettings := map[string]map[string]any{}
 	for _, dashboard := range template.Dashboards {
 		if dashboard.Name != "WAGO 750-880" {
@@ -646,25 +647,36 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 				settings := map[string]any{}
 				for _, field := range widget.Fields {
 					settings[field.Name] = field.Value
-					if field.Name != "columns.0.itemid" {
-						continue
-					}
-					if value, ok := field.Value.(map[string]any); ok {
-						widgets[widget.Name] = widget.Type + ":" + value["key"].(string)
+					// Accept both itemhistory-style (columns.0.itemid) and direct item refs (itemid.0).
+					if field.Name == "columns.0.itemid" || field.Name == "itemid.0" {
+						if value, ok := field.Value.(map[string]any); ok {
+							if key, ok2 := value["key"].(string); ok2 {
+								widgets[widget.Name] = widget.Type + ":" + key
+							}
+						}
 					}
 				}
 				widgetSettings[widget.Name] = settings
+				widgetTypes[widget.Name] = widget.Type
 			}
 		}
 	}
-	if widgets["CODESYS software"] != "itemhistory:automation.gateway.wago.software_info" || widgets["K-bus modules"] != "itemhistory:automation.gateway.wago.module_inventory" {
-		t.Fatalf("WAGO text widgets=%v", widgets)
+	if widgets["CODESYS software"] != "itemhistory:automation.gateway.wago.software_info" {
+		t.Fatalf("CODESYS software widget=%q", widgets["CODESYS software"])
 	}
-	for _, name := range []string{"CODESYS software", "K-bus modules"} {
-		settings := widgetSettings[name]
-		if settings["show_lines"] != "1" || settings["show_column_header"] != "0" || settings["columns.0.monospace_font"] != "1" {
-			t.Fatalf("WAGO text widget %q settings=%v", name, settings)
-		}
+	// K-bus modules is now the custom wago_kbus widget backed by the kbus_layout item.
+	if widgetTypes["K-bus modules"] != "wago_kbus" {
+		t.Fatalf("K-bus modules widget type=%q, want wago_kbus", widgetTypes["K-bus modules"])
+	}
+	kbusSettings := widgetSettings["K-bus modules"]
+	hostRef, ok := kbusSettings["hostid.0"].(map[string]any)
+	if !ok || hostRef["host"] != "Template HomeAuthMonitorGW by HTTP" {
+		t.Fatalf("K-bus modules wago_kbus hostid field=%v", kbusSettings["hostid.0"])
+	}
+	// itemhistory-specific settings apply only to CODESYS software.
+	settings := widgetSettings["CODESYS software"]
+	if settings["show_lines"] != "1" || settings["show_column_header"] != "0" || settings["columns.0.monospace_font"] != "1" {
+		t.Fatalf("CODESYS software widget settings=%v", settings)
 	}
 }
 
