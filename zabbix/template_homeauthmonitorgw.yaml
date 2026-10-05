@@ -617,15 +617,45 @@ zabbix_export:
           history: '30d'
           trends: '0'
           value_type: TEXT
-          description: 'NUT status flags rendered with a value map for common Phoenix UPS states.'
-          valuemap:
-            name: 'NUT UPS status'
+          description: 'Space-separated NUT status flags translated token by token according to RFC 9271; the original flag remains visible in parentheses.'
           master_item:
             key: automation.gateway.snapshot
           preprocessing:
             - type: JSONPATH
               parameters:
                 - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "ups.status")].value.first()'
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var meanings = {
+                      ALARM: 'Intervention required',
+                      BOOST: 'Boosting low input voltage',
+                      BYPASS: 'Bypass / load on utility power',
+                      CAL: 'Calibration running',
+                      CHRG: 'Battery charging',
+                      COMM: 'Communication OK',
+                      DISCHRG: 'Battery discharging',
+                      FSD: 'Forced shutdown in progress',
+                      LB: 'Low battery',
+                      NOCOMM: 'Communication lost',
+                      OB: 'On battery',
+                      OFF: 'UPS off',
+                      OL: 'Online / utility power',
+                      OVER: 'UPS overloaded',
+                      RB: 'Replace battery',
+                      TEST: 'Test running',
+                      TICK: 'Heartbeat signal',
+                      TOCK: 'Heartbeat signal',
+                      TRIM: 'Trimming high input voltage',
+                      WAIT: 'Waiting for driver data'
+                  };
+                  var status = String(value == null ? '' : value).trim();
+                  if (status === '') return 'No status reported';
+                  return status.split(/\s+/).map(function (token) {
+                      return Object.prototype.hasOwnProperty.call(meanings, token)
+                          ? meanings[token] + ' (' + token + ')'
+                          : 'Unknown status (' + token + ')';
+                  }).join(' / ');
           tags:
             - tag: device
               value: phoenix-ups
@@ -1153,123 +1183,6 @@ zabbix_export:
         - tag: target
           value: homeauthmonitorgw
       dashboards:
-        - uuid: aeed269cd3f349d6989a4ba1e84d6a99
-          name: 'WAGO 750-880'
-          pages:
-            - name: Overview
-              widgets:
-                - type: item
-                  name: Health
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.health}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                    - {type: INTEGER, name: show.1, value: '1'}
-                - type: item
-                  name: Uptime
-                  x: '12'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.uptime}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'RTC battery'
-                  x: '24'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.rtc_battery}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: Firmware
-                  x: '36'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.firmware}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: Diagnostic
-                  'y': '3'
-                  width: '24'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.diagnostic}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'Error code'
-                  x: '24'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.error_code}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'IEC task status'
-                  x: '36'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_task_status}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: graph
-                  name: 'IEC task cycle time'
-                  'y': '6'
-                  width: '48'
-                  height: '5'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_cycle_time}
-                    - {type: STRING, name: reference, value: WAGOC}
-                    - {type: INTEGER, name: source_type, value: '1'}
-                - type: itemhistory
-                  name: 'CODESYS software'
-                  'y': '11'
-                  width: '24'
-                  height: '8'
-                  fields:
-                    - type: ITEM
-                      name: columns.0.itemid
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.software_info}
-                    - {type: INTEGER, name: columns.0.monospace_font, value: '1'}
-                    - {type: STRING, name: columns.0.name, value: 'CODESYS software'}
-                    - {type: STRING, name: reference, value: WAGOS}
-                    - {type: INTEGER, name: show_column_header, value: '0'}
-                    - {type: INTEGER, name: show_lines, value: '1'}
-                - type: itemhistory
-                  name: 'K-bus modules'
-                  x: '24'
-                  'y': '11'
-                  width: '24'
-                  height: '8'
-                  fields:
-                    - type: ITEM
-                      name: columns.0.itemid
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.module_inventory}
-                    - {type: INTEGER, name: columns.0.monospace_font, value: '1'}
-                    - {type: STRING, name: columns.0.name, value: 'K-bus modules'}
-                    - {type: STRING, name: reference, value: WAGOM}
-                    - {type: INTEGER, name: show_column_header, value: '0'}
-                    - {type: INTEGER, name: show_lines, value: '1'}
         - uuid: 19e2d6468bf247559654c20985335243
           name: 'Phoenix Contact UPS'
           pages:
@@ -1277,87 +1190,317 @@ zabbix_export:
               widgets:
                 - type: item
                   name: Health
-                  width: '12'
-                  height: '3'
+                  width: '18'
                   fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
                     - type: ITEM
                       name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.health}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                    - {type: INTEGER, name: show.1, value: '1'}
-                - type: item
-                  name: 'UPS status'
-                  x: '12'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.status}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: Model
-                  x: '24'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.model}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'Battery runtime'
-                  x: '36'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_runtime}
-                    - {type: INTEGER, name: show.0, value: '2'}
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.health
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
                 - type: item
                   name: 'Battery charge'
-                  'y': '3'
+                  'y': '2'
                   width: '12'
-                  height: '3'
                   fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
                     - type: ITEM
                       name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_charge}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'Battery temperature'
-                  x: '12'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_temperature}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: item
-                  name: 'Output voltage'
-                  x: '24'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.output_voltage}
-                    - {type: INTEGER, name: show.0, value: '2'}
-                - type: graph
-                  name: 'Battery history'
-                  'y': '6'
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.battery_charge
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: svggraph
+                  'y': '4'
                   width: '48'
                   height: '5'
                   fields:
+                    - type: STRING
+                      name: ds.0.color
+                      value: 80FF00
+                    - type: STRING
+                      name: ds.0.items.0
+                      value: 'Phoenix UPS: Battery charge'
+                    - type: STRING
+                      name: reference
+                      value: USZSO
+                    - type: INTEGER
+                      name: righty
+                      value: '0'
+                - type: item
+                  name: 'Battery temperature'
+                  x: '12'
+                  'y': '2'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
                     - type: ITEM
                       name: itemid.0
-                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_charge}
-                    - {type: STRING, name: reference, value: PHOEN}
-                    - {type: INTEGER, name: source_type, value: '1'}
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.battery_temperature
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'UPS status'
+                  x: '18'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.status
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Output voltage'
+                  x: '24'
+                  'y': '2'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.output_voltage
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: Model
+                  x: '30'
+                  width: '18'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.model
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Battery runtime'
+                  x: '36'
+                  'y': '2'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.phoenix.battery_runtime
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+        - uuid: aeed269cd3f349d6989a4ba1e84d6a99
+          name: 'WAGO 750-880'
+          pages:
+            - name: Overview
+              widgets:
+                - type: item
+                  name: Health
+                  width: '11'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.health
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: Diagnostic
+                  'y': '2'
+                  width: '24'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.diagnostic
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: svggraph
+                  'y': '4'
+                  width: '48'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.color_palette
+                      value: '10'
+                    - type: STRING
+                      name: ds.0.items.0
+                      value: 'WAGO: IEC task cycle time'
+                    - type: STRING
+                      name: reference
+                      value: NYCMJ
+                    - type: INTEGER
+                      name: righty
+                      value: '0'
+                - type: itemhistory
+                  name: 'CODESYS software'
+                  'y': '9'
+                  width: '24'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.software_info
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'CODESYS software'
+                    - type: STRING
+                      name: reference
+                      value: WAGOS
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '1'
+                - type: item
+                  name: Uptime
+                  x: '11'
+                  width: '15'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.uptime
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Error code'
+                  x: '24'
+                  'y': '2'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.error_code
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: itemhistory
+                  name: 'K-bus modules'
+                  x: '24'
+                  'y': '9'
+                  width: '24'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.module_inventory
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'K-bus modules'
+                    - type: STRING
+                      name: reference
+                      value: WAGOM
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '1'
+                - type: item
+                  name: 'RTC battery'
+                  x: '26'
+                  width: '10'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.rtc_battery
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: Firmware
+                  x: '36'
+                  width: '12'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.firmware
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'IEC task status'
+                  x: '36'
+                  'y': '2'
+                  width: '12'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.iec_task_status
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
       valuemaps:
         - uuid: 521eb88e34114a28ad1bf30bb30c5506
           name: 'Overall collector health'
@@ -1376,13 +1519,3 @@ zabbix_export:
           mappings:
             - {value: '0', newvalue: OK}
             - {value: '1', newvalue: 'Battery empty'}
-        - uuid: 456637b4595e43ad84ede060ce715425
-          name: 'NUT UPS status'
-          mappings:
-            - {value: OL, newvalue: 'Online'}
-            - {value: OB, newvalue: 'On battery'}
-            - {value: 'OB LB', newvalue: 'On battery, low battery'}
-            - {value: 'OL CHRG', newvalue: 'Online, charging'}
-            - {value: 'OL DISCHRG', newvalue: 'Online, discharging'}
-            - {value: BYPASS, newvalue: 'Bypass'}
-            - {value: OFF, newvalue: 'Off'}

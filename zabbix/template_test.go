@@ -87,6 +87,10 @@ type templateDocument struct {
 					Widgets []struct {
 						Type   string `yaml:"type"`
 						Name   string `yaml:"name"`
+						X      string `yaml:"x"`
+						Y      string `yaml:"y"`
+						Width  string `yaml:"width"`
+						Height string `yaml:"height"`
 						Fields []struct {
 							Name  string `yaml:"name"`
 							Value any    `yaml:"value"`
@@ -213,7 +217,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 52 {
+	if len(seen) != 51 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -387,15 +391,134 @@ func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
 	if item := items["automation.gateway.wago.iec_cycle_time"]; item.valueType != "FLOAT" || item.units != "µs" {
 		t.Fatalf("WAGO IEC cycle time=%+v", item)
 	}
-	if item := items["automation.gateway.phoenix.status"]; item.valueMap != "NUT UPS status" {
+	if item := items["automation.gateway.phoenix.status"]; item.valueMap != "" {
 		t.Fatalf("UPS status item=%+v", item)
 	}
 	valueMaps := map[string]bool{}
 	for _, valueMap := range template.ValueMaps {
 		valueMaps[valueMap.Name] = true
 	}
-	if !valueMaps["WAGO RTC battery status"] || !valueMaps["NUT UPS status"] {
+	if !valueMaps["WAGO RTC battery status"] || valueMaps["NUT UPS status"] {
 		t.Fatalf("value maps=%v", valueMaps)
+	}
+}
+
+// TestDashboardLayoutMatchesUserExport protects the dashboard geometry customized in Zabbix.
+func TestDashboardLayoutMatchesUserExport(t *testing.T) {
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	type geometry struct{ x, y, width, height, widgetType string }
+	expected := map[string]map[string]geometry{
+		"Phoenix Contact UPS": {
+			"Health": {"0", "0", "18", "", "item"}, "Battery charge": {"0", "2", "12", "", "item"},
+			"Battery temperature": {"12", "2", "12", "", "item"}, "UPS status": {"18", "0", "12", "", "item"},
+			"Output voltage": {"24", "2", "12", "", "item"}, "Model": {"30", "0", "18", "", "item"},
+			"Battery runtime": {"36", "2", "12", "", "item"}, "<graph>": {"0", "4", "48", "5", "svggraph"},
+		},
+		"WAGO 750-880": {
+			"Health": {"0", "0", "11", "", "item"}, "Uptime": {"11", "0", "15", "", "item"},
+			"RTC battery": {"26", "0", "10", "", "item"}, "Firmware": {"36", "0", "12", "", "item"},
+			"Diagnostic": {"0", "2", "24", "", "item"}, "Error code": {"24", "2", "12", "", "item"},
+			"IEC task status": {"36", "2", "12", "", "item"}, "<graph>": {"0", "4", "48", "5", "svggraph"},
+			"CODESYS software": {"0", "9", "24", "8", "itemhistory"}, "K-bus modules": {"24", "9", "24", "8", "itemhistory"},
+		},
+	}
+	for _, dashboard := range document.Export.Templates[0].Dashboards {
+		want, found := expected[dashboard.Name]
+		if !found {
+			continue
+		}
+		got := map[string]geometry{}
+		for _, page := range dashboard.Pages {
+			for _, widget := range page.Widgets {
+				name := widget.Name
+				if name == "" {
+					name = "<graph>"
+				}
+				x, y := widget.X, widget.Y
+				if x == "" {
+					x = "0"
+				}
+				if y == "" {
+					y = "0"
+				}
+				got[name] = geometry{x, y, widget.Width, widget.Height, widget.Type}
+			}
+		}
+		if len(got) != len(want) {
+			t.Fatalf("dashboard %q widget count/layout=%v", dashboard.Name, got)
+		}
+		for name, wanted := range want {
+			if got[name] != wanted {
+				t.Fatalf("dashboard %q widget %q=%+v, want %+v", dashboard.Name, name, got[name], wanted)
+			}
+		}
+		delete(expected, dashboard.Name)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing dashboards: %v", expected)
+	}
+}
+
+// TestPhoenixStatusTranslation verifies every RFC 9271 status token remains understandable in combinations.
+func TestPhoenixStatusTranslation(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	body := ""
+	for _, item := range document.Export.Templates[0].Items {
+		if item.Key != "automation.gateway.phoenix.status" {
+			continue
+		}
+		if item.ValueMap.Name != "" {
+			t.Fatalf("status translation must not depend on an exact-value map: %q", item.ValueMap.Name)
+		}
+		for _, step := range item.Preprocessing {
+			if step.Type == "JAVASCRIPT" {
+				body = step.Parameters[0]
+			}
+		}
+	}
+	if body == "" {
+		t.Fatal("Phoenix status item has no JavaScript translation")
+	}
+	run := func(value string) string {
+		t.Helper()
+		script := "const value = process.argv[1]; function transform() {\n" + body + "\n} process.stdout.write(String(transform()));"
+		output, err := exec.Command(node, "-e", script, value).CombinedOutput()
+		if err != nil {
+			t.Fatalf("translate %q: %v: %s", value, err, output)
+		}
+		return string(output)
+	}
+	if got := run("OL"); got != "Online / utility power (OL)" {
+		t.Fatalf("OL=%q", got)
+	}
+	if got := run("OB LB"); got != "On battery (OB) / Low battery (LB)" {
+		t.Fatalf("OB LB=%q", got)
+	}
+	if got := run("OL CHRG FUTURE"); got != "Online / utility power (OL) / Battery charging (CHRG) / Unknown status (FUTURE)" {
+		t.Fatalf("combined status=%q", got)
+	}
+	for _, token := range []string{"ALARM", "BOOST", "BYPASS", "CAL", "CHRG", "COMM", "DISCHRG", "FSD", "LB", "NOCOMM", "OB", "OFF", "OL", "OVER", "RB", "TEST", "TICK", "TOCK", "TRIM"} {
+		if strings.Contains(run(token), "Unknown status") {
+			t.Fatalf("RFC 9271 token %q is not translated", token)
+		}
 	}
 }
 
