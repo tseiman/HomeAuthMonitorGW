@@ -453,6 +453,36 @@ zabbix_export:
                   value: '{#SOURCE}'
                 - tag: driver
                   value: '{#DRIVER}'
+            - uuid: c90c81ede4ab442aa1d58255fe185abb
+              name: 'Source {#SOURCE}: health'
+              type: DEPENDENT
+              key: 'automation.gateway.source.health["{#SOURCE}"]'
+              history: '30d'
+              trends: '365d'
+              value_type: UNSIGNED
+              description: 'Independent generic health for this collector: healthy after a successful fresh poll, warning when stale, and critical when unavailable.'
+              valuemap:
+                name: 'Collector health'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#SOURCEPATH}'
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var source = JSON.parse(value);
+                      if (!source.available) return 3;
+                      if (source.stale) return 2;
+                      return 1;
+              tags:
+                - tag: component
+                  value: health
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
             - uuid: 6b25fd6f88865ddb99ec4283b5336b85
               name: 'Source {#SOURCE}: last successful poll'
               type: DEPENDENT

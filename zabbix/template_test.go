@@ -125,8 +125,9 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 	if len(template.DiscoveryRules) != 3 {
 		t.Fatalf("discovery rules=%d", len(template.DiscoveryRules))
 	}
-	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 3, "automation.gateway.metrics.discovery": 2, "automation.gateway.numeric_metrics.discovery": 2}
+	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 4, "automation.gateway.metrics.discovery": 2, "automation.gateway.numeric_metrics.discovery": 2}
 	triggerCounts := map[string]int{"automation.gateway.sources.discovery": 2, "automation.gateway.metrics.discovery": 0, "automation.gateway.numeric_metrics.discovery": 0}
+	foundGenericHealth := false
 	for _, rule := range template.DiscoveryRules {
 		if rule.Type != "DEPENDENT" || rule.MasterItem.Key != "automation.gateway.snapshot" {
 			t.Fatalf("rule=%+v", rule)
@@ -135,6 +136,9 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 			t.Fatalf("rule %q has %d items and %d triggers", rule.Key, len(rule.ItemPrototypes), len(rule.TriggerPrototypes))
 		}
 		for _, prototype := range rule.ItemPrototypes {
+			if prototype.Key == `automation.gateway.source.health["{#SOURCE}"]` {
+				foundGenericHealth = true
+			}
 			if prototype.MasterItem.Key != "automation.gateway.snapshot" {
 				t.Fatalf("prototype %q master=%q", prototype.Key, prototype.MasterItem.Key)
 			}
@@ -148,6 +152,9 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		if len(rule.Preprocessing) != 1 || rule.Preprocessing[0].Type != "JAVASCRIPT" || len(rule.Preprocessing[0].Parameters) != 1 {
 			t.Fatalf("rule %q preprocessing=%+v", rule.Key, rule.Preprocessing)
 		}
+	}
+	if !foundGenericHealth {
+		t.Fatal("missing per-source generic health prototype")
 	}
 	foundSecret := false
 	for _, macro := range template.Macros {
@@ -192,7 +199,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 41 {
+	if len(seen) != 42 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }

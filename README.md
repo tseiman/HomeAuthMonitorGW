@@ -334,6 +334,8 @@ Two independent device views are included:
 
 The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Their defaults match the example deployment (`wago-750-880-snmp3` and `ups-main`); override them at host level when source names differ. Phoenix warning and critical thresholds are controlled by `{$PHOENIX_BATTERY_WARNING}`, `{$PHOENIX_BATTERY_CRITICAL}`, `{$PHOENIX_TEMPERATURE_WARNING}`, and `{$PHOENIX_TEMPERATURE_CRITICAL}`. The WAGO and Phoenix health items and triggers are separate. An error in one collector does not change the other collector's health.
 
+Every source discovered later also receives its own `automation.gateway.source.health["<source>"]` item automatically: healthy after a successful fresh poll, warning when stale, and critical when unavailable. Its detailed text and numeric metrics are likewise discovered automatically. The two device dashboards remain specialized views of the single sources selected by `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`; additional device-specific dashboards require another template instance or an additional specialized view, but their generic health and metrics require no template change.
+
 ### Per-collector health events for Honeycomb
 
 [`scripts/health-kpi.py`](scripts/health-kpi.py) reads the same authenticated snapshot and emits one compact NDJSON event per collector. It deliberately emits no global aggregate, so `collector_name` can be used as the Honeycomb breakdown and each collector retains its own `health_status`, `health_score`, warning count, critical count, and reasons.
