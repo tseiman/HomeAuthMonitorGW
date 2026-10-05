@@ -69,7 +69,7 @@ zabbix_export:
               priority: HIGH
               description: 'The authenticated HTTPS master item has produced no value for five minutes. Check TLS, allowlist, token, and gateway availability.'
         - uuid: 1e0f1d2b76894e31ad44529eb2f21f4d
-          name: 'TS Service health: Overall'
+          name: 'TS Service health: HeimAuto'
           type: DEPENDENT
           key: automation.gateway.health.overall
           history: '30d'

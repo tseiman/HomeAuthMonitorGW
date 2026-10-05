@@ -548,7 +548,7 @@ func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 		if item.Key != "automation.gateway.health.overall" {
 			continue
 		}
-		if item.Name != "TS Service health: Overall" || item.ValueType != "UNSIGNED" || item.ValueMap.Name != "Overall collector health" || item.MasterItem.Key != "automation.gateway.snapshot" {
+		if item.Name != "TS Service health: HeimAuto" || item.ValueType != "UNSIGNED" || item.ValueMap.Name != "Overall collector health" || item.MasterItem.Key != "automation.gateway.snapshot" {
 			t.Fatalf("overall health item=%+v", item)
 		}
 		for _, preprocessing := range item.Preprocessing {
