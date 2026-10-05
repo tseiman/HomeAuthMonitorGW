@@ -171,7 +171,7 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 	}
 }
 
-// TestTemplateUUIDsAreUnique verifies every import object has one canonical stable identifier.
+// TestTemplateUUIDsAreUnique verifies every import object has a unique lowercase RFC 4122 UUIDv4 without dashes.
 func TestTemplateUUIDsAreUnique(t *testing.T) {
 	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
 	if err != nil {
@@ -181,7 +181,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(`^[0-9a-f]{32}$`)
+	pattern := regexp.MustCompile(`^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$`)
 	seen := map[string]bool{}
 	var visit func(*yaml.Node)
 	visit = func(node *yaml.Node) {
