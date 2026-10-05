@@ -44,6 +44,10 @@ type templateDocument struct {
 					Type       string   `yaml:"type"`
 					Parameters []string `yaml:"parameters"`
 				} `yaml:"preprocessing"`
+				Triggers []struct {
+					Name       string `yaml:"name"`
+					Expression string `yaml:"expression"`
+				} `yaml:"triggers"`
 			} `yaml:"items"`
 			DiscoveryRules []struct {
 				Type       string `yaml:"type"`
@@ -52,6 +56,7 @@ type templateDocument struct {
 					Key string `yaml:"key"`
 				} `yaml:"master_item"`
 				ItemPrototypes []struct {
+					Name       string `yaml:"name"`
 					Key        string `yaml:"key"`
 					ValueType  string `yaml:"value_type"`
 					Trends     string `yaml:"trends"`
@@ -80,7 +85,12 @@ type templateDocument struct {
 				Name  string `yaml:"name"`
 				Pages []struct {
 					Widgets []struct {
-						Type string `yaml:"type"`
+						Type   string `yaml:"type"`
+						Name   string `yaml:"name"`
+						Fields []struct {
+							Name  string `yaml:"name"`
+							Value any    `yaml:"value"`
+						} `yaml:"fields"`
 					} `yaml:"widgets"`
 				} `yaml:"pages"`
 			} `yaml:"dashboards"`
@@ -112,7 +122,7 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		t.Fatalf("template groups=%+v", document.Export.TemplateGroups)
 	}
 	template := document.Export.Templates[0]
-	if len(template.Items) != 17 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
+	if len(template.Items) != 24 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
 		t.Fatalf("master items=%+v", template.Items)
 	}
 	for _, item := range template.Items[1:] {
@@ -203,7 +213,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 44 {
+	if len(seen) != 52 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -386,6 +396,139 @@ func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
 	}
 }
 
+// TestWAGOProjectAndModuleInventory verifies the specialized software and K-bus views and hardware-change alert.
+func TestWAGOProjectAndModuleInventory(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	template := document.Export.Templates[0]
+	items := map[string]struct {
+		valueType     string
+		preprocessing []struct {
+			Type       string   `yaml:"type"`
+			Parameters []string `yaml:"parameters"`
+		}
+		triggers []struct {
+			Name       string `yaml:"name"`
+			Expression string `yaml:"expression"`
+		}
+	}{}
+	for _, item := range template.Items {
+		items[item.Key] = struct {
+			valueType     string
+			preprocessing []struct {
+				Type       string   `yaml:"type"`
+				Parameters []string `yaml:"parameters"`
+			}
+			triggers []struct {
+				Name       string `yaml:"name"`
+				Expression string `yaml:"expression"`
+			}
+		}{item.ValueType, item.Preprocessing, item.Triggers}
+	}
+	required := []string{
+		"automation.gateway.wago.project_id",
+		"automation.gateway.wago.project_name",
+		"automation.gateway.wago.project_version",
+		"automation.gateway.wago.software_info",
+		"automation.gateway.wago.module_count",
+		"automation.gateway.wago.module_inventory",
+		"automation.gateway.wago.module_inventory.signature",
+	}
+	for _, key := range required {
+		if _, found := items[key]; !found {
+			t.Fatalf("missing WAGO item %q", key)
+		}
+	}
+	if items["automation.gateway.wago.project_id"].valueType != "UNSIGNED" || items["automation.gateway.wago.project_name"].valueType != "TEXT" || items["automation.gateway.wago.project_version"].valueType != "TEXT" {
+		t.Fatalf("project items=%+v", items)
+	}
+	if items["automation.gateway.wago.module_count"].valueType != "UNSIGNED" || items["automation.gateway.wago.module_inventory"].valueType != "TEXT" || items["automation.gateway.wago.module_inventory.signature"].valueType != "TEXT" {
+		t.Fatalf("module items=%+v", items)
+	}
+	mapping := ""
+	for _, macro := range template.Macros {
+		if macro.Macro == "{$WAGO_MODULE_DESCRIPTIONS}" {
+			mapping = macro.Value
+		}
+	}
+	if mapping != `{"750-652/000-000":"Serial interface"}` {
+		t.Fatalf("module mapping=%q", mapping)
+	}
+	snapshot := `{"wago-750-880-snmp3":{"metrics":[{"name":"wioProjectId","value":16507229},{"name":"wioProjectName","value":"Althegnenberg_Heimauto10.pro"},{"name":"wioProjectVersion","value":""},{"name":"wioIecTaskName[1]","value":"MainTask"},{"name":"wioIecTaskStatus[1]","value":0},{"name":"wioIecTaskMode[1]","value":0},{"name":"wioIecTaskCycleTime[1]","value":6},{"name":"wioIecTaskCycleTimeMin[1]","value":5},{"name":"wioIecTaskCycleTimeMax[1]","value":1044},{"name":"wioIecTaskCycleTimeAvg[1]","value":7},{"name":"wioModulCount","value":2},{"name":"wioModuleNumber[2]","value":2},{"name":"wioModuleName[2]","value":"750-652/000-000"},{"name":"wioModuleType[2]","value":163},{"name":"wioModuleNumber[1]","value":1},{"name":"wioModuleName[1]","value":"750-4xx"},{"name":"wioModuleType[1]","value":1}]}}`
+	runJavaScript := func(key string) string {
+		t.Helper()
+		body := ""
+		for _, step := range items[key].preprocessing {
+			if step.Type == "JAVASCRIPT" {
+				body = step.Parameters[0]
+			}
+		}
+		if body == "" {
+			t.Fatalf("item %q has no JavaScript", key)
+		}
+		body = strings.NewReplacer("{$WAGO_SOURCE}", "wago-750-880-snmp3", "{$WAGO_MODULE_DESCRIPTIONS}", mapping).Replace(body)
+		script := "const value = process.argv[1]; function transform() {\n" + body + "\n} process.stdout.write(String(transform()));"
+		output, err := exec.Command(node, "-e", script, snapshot).CombinedOutput()
+		if err != nil {
+			t.Fatalf("item %q: %v: %s", key, err, output)
+		}
+		return string(output)
+	}
+	if got := runJavaScript("automation.gateway.wago.project_version"); got != "Not set" {
+		t.Fatalf("project version=%q", got)
+	}
+	software := runJavaScript("automation.gateway.wago.software_info")
+	for _, want := range []string{"Project ID: 16507229", "Project name: Althegnenberg_Heimauto10.pro", "Project version: Not set", "Task 1: MainTask", "Status: 0", "Cycle time: 6", "Minimum: 5", "Maximum: 1044", "Average: 7"} {
+		if !strings.Contains(software, want) {
+			t.Fatalf("software information missing %q: %q", want, software)
+		}
+	}
+	if got := runJavaScript("automation.gateway.wago.module_inventory.signature"); got != "1|750-4xx|1\n2|750-652/000-000|163" {
+		t.Fatalf("module signature=%q", got)
+	}
+	inventory := runJavaScript("automation.gateway.wago.module_inventory")
+	for _, want := range []string{"Reported module count: 2", "01: 750-4xx (type 1)", "02: 750-652/000-000 — Serial interface (type 163)"} {
+		if !strings.Contains(inventory, want) {
+			t.Fatalf("module inventory missing %q: %q", want, inventory)
+		}
+	}
+	signature := items["automation.gateway.wago.module_inventory.signature"]
+	if len(signature.triggers) != 1 || signature.triggers[0].Name != "WAGO K-bus module inventory changed" || !strings.Contains(signature.triggers[0].Expression, "change(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.module_inventory.signature)=1") {
+		t.Fatalf("module inventory triggers=%+v", signature.triggers)
+	}
+	widgets := map[string]string{}
+	for _, dashboard := range template.Dashboards {
+		if dashboard.Name != "WAGO 750-880" {
+			continue
+		}
+		for _, page := range dashboard.Pages {
+			for _, widget := range page.Widgets {
+				for _, field := range widget.Fields {
+					if field.Name != "itemids.0" {
+						continue
+					}
+					if value, ok := field.Value.(map[string]any); ok {
+						widgets[widget.Name] = widget.Type + ":" + value["key"].(string)
+					}
+				}
+			}
+		}
+	}
+	if widgets["CODESYS software"] != "plaintext:automation.gateway.wago.software_info" || widgets["K-bus modules"] != "plaintext:automation.gateway.wago.module_inventory" {
+		t.Fatalf("WAGO text widgets=%v", widgets)
+	}
+}
+
 // TestOverallHealthJavaScriptAggregatesEveryCollector verifies the five-state summary and worst-state precedence.
 func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 	node, err := exec.LookPath("node")
@@ -405,7 +548,7 @@ func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 		if item.Key != "automation.gateway.health.overall" {
 			continue
 		}
-		if item.ValueType != "UNSIGNED" || item.ValueMap.Name != "Overall collector health" || item.MasterItem.Key != "automation.gateway.snapshot" {
+		if item.Name != "TS Service health: Overall" || item.ValueType != "UNSIGNED" || item.ValueMap.Name != "Overall collector health" || item.MasterItem.Key != "automation.gateway.snapshot" {
 			t.Fatalf("overall health item=%+v", item)
 		}
 		for _, preprocessing := range item.Preprocessing {
@@ -418,11 +561,9 @@ func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 		t.Fatal("overall health JavaScript not found")
 	}
 	wantMap := map[string]string{
-		"0": "Not initialized",
-		"1": "Previously initialized, unreachable or stale",
-		"2": "Initialized, no data",
-		"3": "Data received, health check failed",
-		"4": "Healthy",
+		"0": "Good",
+		"1": "Degraded",
+		"2": "Real issue / unavailable",
 	}
 	foundMap := false
 	for _, valueMap := range document.Export.Templates[0].ValueMaps {
@@ -442,6 +583,24 @@ func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 	if !foundMap {
 		t.Fatal("overall health value map not found")
 	}
+	foundCollectorMap := false
+	for _, valueMap := range document.Export.Templates[0].ValueMaps {
+		if valueMap.Name != "Collector health" {
+			continue
+		}
+		foundCollectorMap = true
+		if len(valueMap.Mappings) != len(wantMap) {
+			t.Fatalf("collector value map=%+v", valueMap.Mappings)
+		}
+		for _, mapping := range valueMap.Mappings {
+			if wantMap[mapping.Value] != mapping.NewValue {
+				t.Fatalf("collector value map entry=%+v", mapping)
+			}
+		}
+	}
+	if !foundCollectorMap {
+		t.Fatal("collector health value map not found")
+	}
 	scriptBody = strings.NewReplacer(
 		"{$PHOENIX_BATTERY_CRITICAL}", "20",
 		"{$PHOENIX_BATTERY_WARNING}", "50",
@@ -454,18 +613,18 @@ func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
 	tests := []struct {
 		name, snapshot, want string
 	}{
-		{"no sources", `{}`, "0"},
-		{"registered but never successful", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]}}`, "0"},
-		{"previously successful but unavailable", `{"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "1"},
+		{"no sources", `{}`, "1"},
+		{"registered but never successful", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]}}`, "1"},
+		{"previously successful but unavailable", `{"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "2"},
 		{"previously successful but stale", `{"stale":{"driver":"snmp","available":true,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "1"},
-		{"successful but empty", `{"empty":{` + initialized + `,"metrics":[]}}`, "2"},
-		{"NUT data reports a problem", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10},{"name":"battery.temperature","value":28}]}}`, "3"},
-		{"NUT health metrics are incomplete", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OL"}]}}`, "3"},
-		{"SNMP diagnostics report a problem", strings.Replace(goodWAGO, `"name":"wioErrorCode","value":0`, `"name":"wioErrorCode","value":7`, 1), "3"},
-		{"known generic data is healthy", goodGeneric, "4"},
-		{"complete healthy SNMP diagnostics are healthy", goodWAGO, "4"},
-		{"empty collector lowers healthy aggregate", `{"empty":{` + initialized + `,"metrics":[]},"generic":{` + initialized + `,"metrics":[{"name":"sysUpTime","value":123}]}}`, "2"},
-		{"uninitialized collector has lowest precedence", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]},"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "0"},
+		{"successful but empty", `{"empty":{` + initialized + `,"metrics":[]}}`, "1"},
+		{"NUT data reports a problem", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10},{"name":"battery.temperature","value":28}]}}`, "2"},
+		{"NUT health metrics are incomplete", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OL"}]}}`, "1"},
+		{"SNMP diagnostics report a problem", strings.Replace(goodWAGO, `"name":"wioErrorCode","value":0`, `"name":"wioErrorCode","value":7`, 1), "2"},
+		{"known generic data is healthy", goodGeneric, "0"},
+		{"complete healthy SNMP diagnostics are healthy", goodWAGO, "0"},
+		{"empty collector degrades healthy aggregate", `{"empty":{` + initialized + `,"metrics":[]},"generic":{` + initialized + `,"metrics":[{"name":"sysUpTime","value":123}]}}`, "1"},
+		{"real issue dominates uninitialized collector", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]},"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "2"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -496,18 +655,38 @@ func TestDeviceHealthJavaScriptScoresCollectorsIndependently(t *testing.T) {
 		key, source string
 		want        string
 	}{
-		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.1.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}},{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.11.5.0"}}]}`, "1"},
-		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":7,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}}]}`, "3"},
-		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}}]}`, "2"},
-		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"},{"name":"battery.charge","value":100},{"name":"battery.temperature","value":28}]}`, "1"},
-		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10}]}`, "3"},
-		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"}]}`, "2"},
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.1.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}},{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.11.5.0"}}]}`, "0"},
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":7,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}}]}`, "2"},
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}}]}`, "1"},
+		{"automation.gateway.wago.health", `{"available":false,"stale":true,"metrics":[]}`, "2"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"},{"name":"battery.charge","value":100},{"name":"battery.temperature","value":28}]}`, "0"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10}]}`, "2"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"}]}`, "1"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":true,"metrics":[{"name":"ups.status","value":"OL"},{"name":"battery.charge","value":100},{"name":"battery.temperature","value":28}]}`, "1"},
 	}
+	wantNames := map[string]string{
+		"automation.gateway.wago.health":    "TS Service health: WAGO 750-880",
+		"automation.gateway.phoenix.health": "TS Service health: Phoenix Contact UPS",
+	}
+	checkedTriggers := map[string]bool{}
 	for _, test := range tests {
 		var scriptBody string
 		for _, item := range document.Export.Templates[0].Items {
 			if item.Key != test.key {
 				continue
+			}
+			if item.Name != wantNames[test.key] {
+				t.Fatalf("key=%q name=%q", test.key, item.Name)
+			}
+			if !checkedTriggers[test.key] {
+				if len(item.Triggers) != 2 {
+					t.Fatalf("key=%q triggers=%+v", test.key, item.Triggers)
+				}
+				expressions := item.Triggers[0].Expression + "\n" + item.Triggers[1].Expression
+				if !strings.Contains(expressions, ")=2") || !strings.Contains(expressions, ")=1") || strings.Contains(expressions, ")=3") {
+					t.Fatalf("key=%q trigger expressions=%q", test.key, expressions)
+				}
+				checkedTriggers[test.key] = true
 			}
 			for _, preprocessing := range item.Preprocessing {
 				if preprocessing.Type == "JAVASCRIPT" {
@@ -528,6 +707,35 @@ func TestDeviceHealthJavaScriptScoresCollectorsIndependently(t *testing.T) {
 		output, err := exec.Command(node, "-e", script, test.source).CombinedOutput()
 		if err != nil || string(output) != test.want {
 			t.Fatalf("key=%q want=%q error=%v output=%q", test.key, test.want, err, output)
+		}
+	}
+	var genericName, genericScript string
+	for _, rule := range document.Export.Templates[0].DiscoveryRules {
+		for _, prototype := range rule.ItemPrototypes {
+			if prototype.Key != `automation.gateway.source.health["{#SOURCE}"]` {
+				continue
+			}
+			genericName = prototype.Name
+			for _, preprocessing := range prototype.Preprocessing {
+				if preprocessing.Type == "JAVASCRIPT" {
+					genericScript = preprocessing.Parameters[0]
+				}
+			}
+		}
+	}
+	if genericName != "TS Service health: {#SOURCE}" || genericScript == "" {
+		t.Fatalf("generic health name=%q script=%q", genericName, genericScript)
+	}
+	for source, want := range map[string]string{
+		`{"available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"metric","value":1}]}`: "0",
+		`{"available":true,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"metric","value":1}]}`:  "1",
+		`{"available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[]}`:                            "1",
+		`{"available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"metric","value":1}]}`: "2",
+	} {
+		script := "const value = process.argv[1]; function transform() {\n" + genericScript + "\n} process.stdout.write(String(transform()));"
+		output, err := exec.Command(node, "-e", script, source).CombinedOutput()
+		if err != nil || string(output) != want {
+			t.Fatalf("generic health source=%q want=%q error=%v output=%q", source, want, err, output)
 		}
 	}
 }

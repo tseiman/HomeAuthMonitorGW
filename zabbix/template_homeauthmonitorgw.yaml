@@ -69,13 +69,13 @@ zabbix_export:
               priority: HIGH
               description: 'The authenticated HTTPS master item has produced no value for five minutes. Check TLS, allowlist, token, and gateway availability.'
         - uuid: 1e0f1d2b76894e31ad44529eb2f21f4d
-          name: 'Automation gateway: Overall collector health'
+          name: 'TS Service health: Overall'
           type: DEPENDENT
           key: automation.gateway.health.overall
           history: '30d'
           trends: '365d'
           value_type: UNSIGNED
-          description: 'Aggregate of every configured collector. The lowest state wins: 0 not initialized, 1 previously initialized but unreachable or stale, 2 initialized with no metrics, 3 metrics received but a known health check failed, 4 all collectors healthy.'
+          description: 'Aggregate of every configured collector. The highest state wins: 0 good, 1 degraded, 2 real issue or unavailable.'
           valuemap:
             name: 'Overall collector health'
           master_item:
@@ -86,10 +86,10 @@ zabbix_export:
                 - |
                   var snapshot = JSON.parse(value);
                   var sourceNames = Object.keys(snapshot);
-                  if (sourceNames.length === 0) return 0;
-                  var overall = 4;
-                  function lower(state) {
-                      if (state < overall) overall = state;
+                  if (sourceNames.length === 0) return 1;
+                  var overall = 0;
+                  function worsen(state) {
+                      if (state > overall) overall = state;
                   }
                   function has(object, key) {
                       return Object.prototype.hasOwnProperty.call(object, key);
@@ -100,15 +100,16 @@ zabbix_export:
                   sourceNames.forEach(function (sourceName) {
                       var source = snapshot[sourceName];
                       if (!source.last_success || source.last_success === '0001-01-01T00:00:00Z') {
-                          lower(0);
+                          worsen(1);
                           return;
                       }
-                      if (!source.available || source.stale) {
-                          lower(1);
+                      if (!source.available) {
+                          worsen(2);
                           return;
                       }
+                      if (source.stale) worsen(1);
                       if (source.metrics.length === 0) {
-                          lower(2);
+                          worsen(1);
                           return;
                       }
                       var byName = {};
@@ -123,28 +124,29 @@ zabbix_export:
                           }
                           if (metric.name.indexOf('wio') === 0) wagoLike = true;
                       });
-                      var unhealthy = false;
                       if (source.driver === 'nut') {
                           var requiredNUT = ['ups.status', 'battery.charge', 'battery.temperature'];
-                          requiredNUT.forEach(function (name) { if (!has(byName, name)) unhealthy = true; });
+                          requiredNUT.forEach(function (name) { if (!has(byName, name)) worsen(1); });
                           var status = String(byName['ups.status'] || '');
                           var tokens = status ? status.split(/\s+/) : [];
-                          if (!status || tokens.indexOf('OL') < 0 || tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) unhealthy = true;
+                          if (tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) worsen(2);
+                          else if (!status || tokens.indexOf('OL') < 0) worsen(1);
                           var charge = Number(byName['battery.charge']);
                           var temperature = Number(byName['battery.temperature']);
-                          if (isNaN(charge) || charge < Number('{$PHOENIX_BATTERY_WARNING}')) unhealthy = true;
-                          if (isNaN(temperature) || temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) unhealthy = true;
+                          if (has(byName, 'battery.charge') && (isNaN(charge) || charge < Number('{$PHOENIX_BATTERY_CRITICAL}'))) worsen(2);
+                          else if (has(byName, 'battery.charge') && charge < Number('{$PHOENIX_BATTERY_WARNING}')) worsen(1);
+                          if (has(byName, 'battery.temperature') && (isNaN(temperature) || temperature >= Number('{$PHOENIX_TEMPERATURE_CRITICAL}'))) worsen(2);
+                          else if (has(byName, 'battery.temperature') && temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) worsen(1);
                       } else if (source.driver === 'snmp' && wagoLike) {
                           var errorGroup = '1.3.6.1.4.1.13576.10.1.20.1.0';
                           var errorCode = '1.3.6.1.4.1.13576.10.1.20.2.0';
                           var errorDescription = '1.3.6.1.4.1.13576.10.1.20.4.0';
                           var rtcBattery = '1.3.6.1.4.1.13576.10.1.11.5.0';
-                          [errorGroup, errorCode, errorDescription, rtcBattery].forEach(function (oid) { if (!has(byOID, oid)) unhealthy = true; });
-                          if (has(byOID, errorGroup) && invalidOrNotZero(byOID[errorGroup])) unhealthy = true;
-                          if (has(byOID, errorCode) && invalidOrNotZero(byOID[errorCode])) unhealthy = true;
-                          if (has(byOID, rtcBattery) && invalidOrNotZero(byOID[rtcBattery])) unhealthy = true;
+                          [errorGroup, errorCode, errorDescription, rtcBattery].forEach(function (oid) { if (!has(byOID, oid)) worsen(1); });
+                          if (has(byOID, errorGroup) && invalidOrNotZero(byOID[errorGroup])) worsen(2);
+                          if (has(byOID, errorCode) && invalidOrNotZero(byOID[errorCode])) worsen(2);
+                          if (has(byOID, rtcBattery) && invalidOrNotZero(byOID[rtcBattery])) worsen(1);
                       }
-                      if (unhealthy) lower(3);
                   });
                   return overall;
           tags:
@@ -153,13 +155,13 @@ zabbix_export:
             - tag: scope
               value: overall
         - uuid: 1fa248c88e9c48c38ed250719763a212
-          name: 'WAGO: Collector health'
+          name: 'TS Service health: WAGO 750-880'
           type: DEPENDENT
           key: automation.gateway.wago.health
           history: '30d'
           trends: '365d'
           value_type: UNSIGNED
-          description: 'Independent WAGO collector health: 1 healthy, 2 warning, 3 critical. Combines reachability, staleness, WAGO error group/code, and RTC battery state.'
+          description: 'Independent WAGO collector health: 0 good, 1 degraded, 2 real issue or unavailable. Combines reachability, staleness, WAGO error group/code, and RTC battery state.'
           valuemap:
             name: 'Collector health'
           master_item:
@@ -172,16 +174,16 @@ zabbix_export:
               parameters:
                 - |
                   var source = JSON.parse(value);
-                  if (!source.available) return 3;
-                  var health = source.stale ? 2 : 1;
+                  if (!source.available) return 2;
+                  var health = source.stale ? 1 : 0;
                   var values = {};
                   source.metrics.forEach(function (metric) {
                       if (metric.labels && typeof metric.labels.oid === 'string') values[metric.labels.oid] = metric.value;
                   });
                   var required = ['1.3.6.1.4.1.13576.10.1.20.1.0', '1.3.6.1.4.1.13576.10.1.20.2.0', '1.3.6.1.4.1.13576.10.1.20.4.0', '1.3.6.1.4.1.13576.10.1.11.5.0'];
-                  required.forEach(function (oid) { if (!Object.prototype.hasOwnProperty.call(values, oid)) health = 2; });
-                  if ((Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.1.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.1.0']) !== 0) || (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.2.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.2.0']) !== 0)) return 3;
-                  if (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.11.5.0') && Number(values['1.3.6.1.4.1.13576.10.1.11.5.0']) !== 0) health = 2;
+                  required.forEach(function (oid) { if (!Object.prototype.hasOwnProperty.call(values, oid)) health = 1; });
+                  if ((Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.1.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.1.0']) !== 0) || (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.2.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.2.0']) !== 0)) return 2;
+                  if (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.11.5.0') && Number(values['1.3.6.1.4.1.13576.10.1.11.5.0']) !== 0) health = 1;
                   return health;
           tags:
             - tag: component
@@ -190,12 +192,12 @@ zabbix_export:
               value: wago
           triggers:
             - uuid: c7bf160795a84d2dbb13601d5154f496
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=3'
-              name: 'WAGO collector health is critical'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=2'
+              name: 'WAGO service health has a real issue or is unavailable'
               priority: HIGH
             - uuid: 472d5a45cf244473aabd2ece2a4bea98
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=2'
-              name: 'WAGO collector health has a warning'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=1'
+              name: 'WAGO service health is degraded'
               priority: WARNING
         - uuid: 9e0913d22e404082a7c20fdc461ab4f1
           name: 'WAGO: System uptime'
@@ -327,14 +329,240 @@ zabbix_export:
           tags:
             - tag: device
               value: wago
+        - uuid: ca4f7a70756e4848b6abc859b8ffaa38
+          name: 'WAGO: CODESYS project ID'
+          type: DEPENDENT
+          key: automation.gateway.wago.project_id
+          history: '90d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Numeric identifier of the loaded CODESYS project. A change can indicate a new project download.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.name == "wioProjectId")].value.first()'
+          tags:
+            - tag: component
+              value: software
+            - tag: device
+              value: wago
+        - uuid: a5881e28f7d54e32b5ea4e566ffa8417
+          name: 'WAGO: CODESYS project name'
+          type: DEPENDENT
+          key: automation.gateway.wago.project_name
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Name of the loaded CODESYS project.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.name == "wioProjectName")].value.first()'
+          tags:
+            - tag: component
+              value: software
+            - tag: device
+              value: wago
+        - uuid: 57672c3f4f454f7e90215a4b5b53ae1d
+          name: 'WAGO: CODESYS project version'
+          type: DEPENDENT
+          key: automation.gateway.wago.project_version
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Project-defined CODESYS version, or Not set when the project reports an empty version.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var source = snapshot['{$WAGO_SOURCE}'];
+                  if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+                  for (var index = 0; index < source.metrics.length; index++) {
+                      if (source.metrics[index].name === 'wioProjectVersion') {
+                          var version = String(source.metrics[index].value == null ? '' : source.metrics[index].value).trim();
+                          return version || 'Not set';
+                      }
+                  }
+                  return 'Not reported';
+          tags:
+            - tag: component
+              value: software
+            - tag: device
+              value: wago
+        - uuid: b0410012e4e1422986ff01fb10178c5b
+          name: 'WAGO: CODESYS software information'
+          type: DEPENDENT
+          key: automation.gateway.wago.software_info
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Combined CODESYS project and IEC task information for the WAGO dashboard.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var source = snapshot['{$WAGO_SOURCE}'];
+                  if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+                  var values = {};
+                  source.metrics.forEach(function (metric) { values[metric.name] = metric.value; });
+                  function display(name, emptyValue) {
+                      if (!Object.prototype.hasOwnProperty.call(values, name) || values[name] == null || String(values[name]).trim() === '') return emptyValue;
+                      return String(values[name]);
+                  }
+                  var lines = [
+                      'Project ID: ' + display('wioProjectId', 'Not reported'),
+                      'Project name: ' + display('wioProjectName', 'Not reported'),
+                      'Project version: ' + display('wioProjectVersion', 'Not set')
+                  ];
+                  var taskIndexes = {};
+                  Object.keys(values).forEach(function (name) {
+                      var match = /^wioIecTask[^[]+\[(\d+)\]$/.exec(name);
+                      if (match) taskIndexes[Number(match[1])] = true;
+                  });
+                  var indexes = Object.keys(taskIndexes).map(Number).sort(function (left, right) { return left - right; });
+                  if (indexes.length === 0) {
+                      lines.push('', 'IEC tasks: None reported');
+                  }
+                  indexes.forEach(function (taskIndex) {
+                      lines.push(
+                          '',
+                          'Task ' + taskIndex + ': ' + display('wioIecTaskName[' + taskIndex + ']', 'Unnamed'),
+                          '  Status: ' + display('wioIecTaskStatus[' + taskIndex + ']', 'Not reported'),
+                          '  Mode: ' + display('wioIecTaskMode[' + taskIndex + ']', 'Not reported'),
+                          '  Cycle time: ' + display('wioIecTaskCycleTime[' + taskIndex + ']', 'Not reported'),
+                          '  Minimum: ' + display('wioIecTaskCycleTimeMin[' + taskIndex + ']', 'Not reported'),
+                          '  Maximum: ' + display('wioIecTaskCycleTimeMax[' + taskIndex + ']', 'Not reported'),
+                          '  Average: ' + display('wioIecTaskCycleTimeAvg[' + taskIndex + ']', 'Not reported')
+                      );
+                  });
+                  return lines.join('\n');
+          tags:
+            - tag: component
+              value: software
+            - tag: device
+              value: wago
+        - uuid: ce5723e4a34e4c2e916076388e205f1e
+          name: 'WAGO: K-bus module count'
+          type: DEPENDENT
+          key: automation.gateway.wago.module_count
+          history: '90d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Number of modules reported in the current WAGO K-bus inventory.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.name == "wioModulCount")].value.first()'
+          tags:
+            - tag: component
+              value: inventory
+            - tag: device
+              value: wago
+        - uuid: e837c48c28fa4a679551953097f8dd25
+          name: 'WAGO: K-bus module inventory'
+          type: DEPENDENT
+          key: automation.gateway.wago.module_inventory
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Ordered K-bus module list. Human-readable meanings are added from {$WAGO_MODULE_DESCRIPTIONS}; unknown articles remain unchanged.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var source = snapshot['{$WAGO_SOURCE}'];
+                  if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+                  var descriptions = {$WAGO_MODULE_DESCRIPTIONS};
+                  var slots = {};
+                  var reportedCount = 'Not reported';
+                  source.metrics.forEach(function (metric) {
+                      if (metric.name === 'wioModulCount') reportedCount = String(metric.value);
+                      var match = /^wioModule(Number|Name|Type)\[(\d+)\]$/.exec(metric.name);
+                      if (!match) return;
+                      var index = Number(match[2]);
+                      if (!slots[index]) slots[index] = {slot: index};
+                      slots[index][match[1].toLowerCase()] = metric.value;
+                  });
+                  var modules = Object.keys(slots).map(function (index) { return slots[index]; }).filter(function (module) { return module.name != null; });
+                  modules.sort(function (left, right) { return Number(left.number || left.slot) - Number(right.number || right.slot); });
+                  var lines = ['Reported module count: ' + reportedCount];
+                  modules.forEach(function (module) {
+                      var slot = Number(module.number || module.slot);
+                      var article = String(module.name);
+                      var label = Object.prototype.hasOwnProperty.call(descriptions, article) ? ' — ' + descriptions[article] : '';
+                      var type = module.type == null ? 'not reported' : String(module.type);
+                      lines.push(('0' + slot).slice(-2) + ': ' + article + label + ' (type ' + type + ')');
+                  });
+                  return lines.join('\n');
+          tags:
+            - tag: component
+              value: inventory
+            - tag: device
+              value: wago
+        - uuid: 9464045cf8da483a8ecfb006dda6b3fd
+          name: 'WAGO: K-bus module inventory signature'
+          type: DEPENDENT
+          key: automation.gateway.wago.module_inventory.signature
+          history: '90d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Canonical slot, article, and type signature used solely to detect physical K-bus inventory changes.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var source = snapshot['{$WAGO_SOURCE}'];
+                  if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+                  var slots = {};
+                  source.metrics.forEach(function (metric) {
+                      var match = /^wioModule(Number|Name|Type)\[(\d+)\]$/.exec(metric.name);
+                      if (!match) return;
+                      var index = Number(match[2]);
+                      if (!slots[index]) slots[index] = {slot: index};
+                      slots[index][match[1].toLowerCase()] = metric.value;
+                  });
+                  var modules = Object.keys(slots).map(function (index) { return slots[index]; }).filter(function (module) { return module.name != null; });
+                  modules.sort(function (left, right) { return Number(left.number || left.slot) - Number(right.number || right.slot); });
+                  return modules.map(function (module) {
+                      return String(module.number || module.slot) + '|' + String(module.name) + '|' + String(module.type == null ? '' : module.type);
+                  }).join('\n');
+          tags:
+            - tag: component
+              value: inventory
+            - tag: device
+              value: wago
+          triggers:
+            - uuid: 3630107ec8ea4ed58bb8af6f527fe5da
+              expression: 'change(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.module_inventory.signature)=1'
+              name: 'WAGO K-bus module inventory changed'
+              priority: WARNING
+              description: 'The ordered K-bus slot, article, or vendor type inventory differs from the previous successful snapshot. Verify the attached modules and acknowledge the hardware change.'
         - uuid: 792611d123d24d84a925f7ff285023be
-          name: 'Phoenix UPS: Collector health'
+          name: 'TS Service health: Phoenix Contact UPS'
           type: DEPENDENT
           key: automation.gateway.phoenix.health
           history: '30d'
           trends: '365d'
           value_type: UNSIGNED
-          description: 'Independent Phoenix/NUT collector health derived from availability, staleness, UPS status, charge, and battery temperature.'
+          description: 'Independent Phoenix/NUT collector health: 0 good, 1 degraded, 2 real issue or unavailable. Derived from availability, staleness, UPS status, charge, and battery temperature.'
           valuemap:
             name: 'Collector health'
           master_item:
@@ -347,21 +575,21 @@ zabbix_export:
               parameters:
                 - |
                   var source = JSON.parse(value);
-                  if (!source.available) return 3;
-                  var health = source.stale ? 2 : 1;
+                  if (!source.available) return 2;
+                  var health = source.stale ? 1 : 0;
                   var values = {};
                   source.metrics.forEach(function (metric) { values[metric.name] = metric.value; });
                   var status = String(values['ups.status'] || '');
                   var tokens = status.split(/\s+/);
-                  if (!Object.prototype.hasOwnProperty.call(values, 'ups.status') || !Object.prototype.hasOwnProperty.call(values, 'battery.charge') || !Object.prototype.hasOwnProperty.call(values, 'battery.temperature')) health = 2;
-                  if (tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) return 3;
-                  if (status && tokens.indexOf('OL') < 0) health = 2;
+                  if (!Object.prototype.hasOwnProperty.call(values, 'ups.status') || !Object.prototype.hasOwnProperty.call(values, 'battery.charge') || !Object.prototype.hasOwnProperty.call(values, 'battery.temperature')) health = 1;
+                  if (tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) return 2;
+                  if (status && tokens.indexOf('OL') < 0) health = 1;
                   var charge = Number(values['battery.charge']);
-                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_CRITICAL}')) return 3;
-                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_WARNING}')) health = 2;
+                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_CRITICAL}')) return 2;
+                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_WARNING}')) health = 1;
                   var temperature = Number(values['battery.temperature']);
-                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_CRITICAL}')) return 3;
-                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) health = 2;
+                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_CRITICAL}')) return 2;
+                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) health = 1;
                   return health;
           tags:
             - tag: component
@@ -370,12 +598,12 @@ zabbix_export:
               value: phoenix-ups
           triggers:
             - uuid: 3677dc87a6fa403e997d3cf567db8e83
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=3'
-              name: 'Phoenix UPS collector health is critical'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=2'
+              name: 'Phoenix UPS service health has a real issue or is unavailable'
               priority: HIGH
             - uuid: ada7f4f7a7824ff59399d15faffa12f9
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=2'
-              name: 'Phoenix UPS collector health has a warning'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=1'
+              name: 'Phoenix UPS service health is degraded'
               priority: WARNING
         - uuid: ef36034ac500442ca4fa3a5c148296bc
           name: 'Phoenix UPS: Status'
@@ -538,13 +766,13 @@ zabbix_export:
                 - tag: driver
                   value: '{#DRIVER}'
             - uuid: c90c81ede4ab442aa1d58255fe185abb
-              name: 'Source {#SOURCE}: health'
+              name: 'TS Service health: {#SOURCE}'
               type: DEPENDENT
               key: 'automation.gateway.source.health["{#SOURCE}"]'
               history: '30d'
               trends: '365d'
               value_type: UNSIGNED
-              description: 'Independent generic health for this collector: healthy after a successful fresh poll, warning when stale, and critical when unavailable.'
+              description: 'Independent generic health for this collector: 0 good, 1 degraded, 2 real issue or unavailable.'
               valuemap:
                 name: 'Collector health'
               master_item:
@@ -557,9 +785,10 @@ zabbix_export:
                   parameters:
                     - |
                       var source = JSON.parse(value);
-                      if (!source.available) return 3;
-                      if (source.stale) return 2;
-                      return 1;
+                      if (!source.last_success || source.last_success === '0001-01-01T00:00:00Z') return 1;
+                      if (!source.available) return 2;
+                      if (source.stale || source.metrics.length === 0) return 1;
+                      return 0;
               tags:
                 - tag: component
                   value: health
@@ -895,6 +1124,9 @@ zabbix_export:
         - macro: '{$WAGO_SOURCE}'
           value: 'wago-750-880-snmp3'
           description: 'Gateway source name used by the WAGO core items and dashboard.'
+        - macro: '{$WAGO_MODULE_DESCRIPTIONS}'
+          value: '{"750-652/000-000":"Serial interface"}'
+          description: 'Valid JSON object mapping reported WAGO module article strings to operator-friendly descriptions. This affects display only, not the inventory-change trigger.'
         - macro: '{$PHOENIX_SOURCE}'
           value: 'ups-main'
           description: 'Gateway source name used by the Phoenix Contact UPS core items and dashboard.'
@@ -1004,6 +1236,27 @@ zabbix_export:
                       value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_cycle_time}
                     - {type: STRING, name: reference, value: WAGOC}
                     - {type: INTEGER, name: source_type, value: '1'}
+                - type: plaintext
+                  name: 'CODESYS software'
+                  'y': '11'
+                  width: '24'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: itemids.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.software_info}
+                    - {type: INTEGER, name: show_lines, value: '25'}
+                - type: plaintext
+                  name: 'K-bus modules'
+                  x: '24'
+                  'y': '11'
+                  width: '24'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: itemids.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.module_inventory}
+                    - {type: INTEGER, name: show_lines, value: '30'}
         - uuid: 19e2d6468bf247559654c20985335243
           name: 'Phoenix Contact UPS'
           pages:
@@ -1096,18 +1349,15 @@ zabbix_export:
         - uuid: 521eb88e34114a28ad1bf30bb30c5506
           name: 'Overall collector health'
           mappings:
-            - {value: '0', newvalue: 'Not initialized'}
-            - {value: '1', newvalue: 'Previously initialized, unreachable or stale'}
-            - {value: '2', newvalue: 'Initialized, no data'}
-            - {value: '3', newvalue: 'Data received, health check failed'}
-            - {value: '4', newvalue: Healthy}
+            - {value: '0', newvalue: Good}
+            - {value: '1', newvalue: Degraded}
+            - {value: '2', newvalue: 'Real issue / unavailable'}
         - uuid: 1e5c61784bae4102993378537c0773a5
           name: 'Collector health'
           mappings:
-            - {value: '0', newvalue: Unknown}
-            - {value: '1', newvalue: Healthy}
-            - {value: '2', newvalue: Warning}
-            - {value: '3', newvalue: Critical}
+            - {value: '0', newvalue: Good}
+            - {value: '1', newvalue: Degraded}
+            - {value: '2', newvalue: 'Real issue / unavailable'}
         - uuid: bf39a68ab79a40278efe448709b9ca43
           name: 'WAGO RTC battery status'
           mappings:

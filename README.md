@@ -348,22 +348,20 @@ The template stores strings as text and numeric metrics as trendable numeric ite
 
 Two independent device views are included:
 
-- **WAGO 750-880**: collector health, human-readable uptime, diagnostic text, error code, RTC battery, firmware, IEC task status, and cycle-time history.
-- **Phoenix Contact UPS**: collector health, NUT status, model, charge, runtime, battery temperature, output voltage, and battery history.
+- **WAGO 750-880**: service health, human-readable uptime, diagnostic text, error code, RTC battery, firmware, CODESYS project and IEC task details, ordered K-bus module inventory, and cycle-time history. A warning trigger records any change to the reported K-bus slot/article/type signature.
+- **Phoenix Contact UPS**: service health, NUT status, model, charge, runtime, battery temperature, output voltage, and battery history.
 
-The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Their defaults match the example deployment (`wago-750-880-snmp3` and `ups-main`); override them at host level when source names differ. Phoenix warning and critical thresholds are controlled by `{$PHOENIX_BATTERY_WARNING}`, `{$PHOENIX_BATTERY_CRITICAL}`, `{$PHOENIX_TEMPERATURE_WARNING}`, and `{$PHOENIX_TEMPERATURE_CRITICAL}`. The WAGO and Phoenix health items and triggers are separate. An error in one collector does not change the other collector's health.
+The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Their defaults match the example deployment (`wago-750-880-snmp3` and `ups-main`); override them at host level when source names differ. Phoenix warning and critical thresholds are controlled by `{$PHOENIX_BATTERY_WARNING}`, `{$PHOENIX_BATTERY_CRITICAL}`, `{$PHOENIX_TEMPERATURE_WARNING}`, and `{$PHOENIX_TEMPERATURE_CRITICAL}`. The WAGO and Phoenix health items and triggers are separate. An error in one collector does not change the other collector's individual health.
 
-Every source discovered later also receives its own `automation.gateway.source.health["<source>"]` item automatically: healthy after a successful fresh poll, warning when stale, and critical when unavailable. Its detailed text and numeric metrics are likewise discovered automatically. The two device dashboards remain specialized views of the single sources selected by `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`; additional device-specific dashboards require another template instance or an additional specialized view, but their generic health and metrics require no template change.
+`{$WAGO_MODULE_DESCRIPTIONS}` is a valid JSON object that adds operator-friendly meanings to reported module articles in the dashboard, for example `{"750-652/000-000":"Serial interface"}`. Extend or override this macro at host level. It affects display only; description changes cannot fire the hardware inventory trigger.
 
-Above these per-source items, `automation.gateway.health.overall` summarizes every configured collector. The lowest state wins, so one unhealthy source cannot be hidden by healthy sources:
+Every source discovered later also receives its own `automation.gateway.source.health["<source>"]` item automatically. All individual and overall Zabbix health item names start with `TS Service health: `, so `{{ITEM.NAME}.regsub("^TS Service health: (.*)$", "\1")}` returns the service name. All use the same three values:
 
-- `0` — not initialized: there are no sources, or at least one registered source has never completed a successful poll.
-- `1` — previously initialized but now unreachable or stale; last-known-good metrics may still be retained.
-- `2` — initialized and reachable, but the successful poll returned no metrics.
-- `3` — current metrics are present, but a known SNMP diagnostic or NUT health check failed or required health metrics are missing.
-- `4` — every collector is initialized, current, non-empty, and passes all applicable known health checks.
+- `0` — **Good**: reachable, fresh, non-empty data and all applicable known checks pass.
+- `1` — **Degraded**: not initialized, stale, empty data, missing expected health metrics, a warning threshold, or another non-critical condition.
+- `2` — **Real issue / unavailable**: the collector is unavailable, a confirmed device error is present, or a critical threshold is crossed.
 
-The item has its own `Overall collector health` value map. Before the HTTPS master item has received its first snapshot, dependent items cannot have a value; the separate master-item `nodata(...,5m)` trigger covers that condition. Once a valid empty or uninitialized snapshot exists, overall health returns `0`.
+`automation.gateway.health.overall` is the layer above every collector. The highest state wins (`max`), so a real issue (`2`) dominates degraded (`1`) and good (`0`). Before the HTTPS master item has received its first snapshot, dependent items cannot have a value; the separate master-item `nodata(...,5m)` trigger covers that condition. A valid snapshot with no configured sources returns degraded (`1`).
 
 ### Per-collector health events for Honeycomb
 
