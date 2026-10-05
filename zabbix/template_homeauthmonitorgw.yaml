@@ -302,7 +302,8 @@ zabbix_export:
           history: '30d'
           trends: '365d'
           value_type: FLOAT
-          description: 'Current IEC task cycle-time value. The vendor MIB does not state a reliable unit.'
+          units: µs
+          description: 'Current IEC task execution time in microseconds, matching the CODESYS task-monitoring cycle-time unit.'
           master_item:
             key: automation.gateway.snapshot
           preprocessing:
@@ -419,6 +420,10 @@ zabbix_export:
                       if (!Object.prototype.hasOwnProperty.call(values, name) || values[name] == null || String(values[name]).trim() === '') return emptyValue;
                       return String(values[name]);
                   }
+                  function cycleTime(name) {
+                      var result = display(name, 'Not reported');
+                      return result === 'Not reported' ? result : result + ' µs';
+                  }
                   var lines = [
                       'Project ID: ' + display('wioProjectId', 'Not reported'),
                       'Project name: ' + display('wioProjectName', 'Not reported'),
@@ -439,10 +444,10 @@ zabbix_export:
                           'Task ' + taskIndex + ': ' + display('wioIecTaskName[' + taskIndex + ']', 'Unnamed'),
                           '  Status: ' + display('wioIecTaskStatus[' + taskIndex + ']', 'Not reported'),
                           '  Mode: ' + display('wioIecTaskMode[' + taskIndex + ']', 'Not reported'),
-                          '  Cycle time: ' + display('wioIecTaskCycleTime[' + taskIndex + ']', 'Not reported'),
-                          '  Minimum: ' + display('wioIecTaskCycleTimeMin[' + taskIndex + ']', 'Not reported'),
-                          '  Maximum: ' + display('wioIecTaskCycleTimeMax[' + taskIndex + ']', 'Not reported'),
-                          '  Average: ' + display('wioIecTaskCycleTimeAvg[' + taskIndex + ']', 'Not reported')
+                          '  Cycle time: ' + cycleTime('wioIecTaskCycleTime[' + taskIndex + ']'),
+                          '  Minimum: ' + cycleTime('wioIecTaskCycleTimeMin[' + taskIndex + ']'),
+                          '  Maximum: ' + cycleTime('wioIecTaskCycleTimeMax[' + taskIndex + ']'),
+                          '  Average: ' + cycleTime('wioIecTaskCycleTimeAvg[' + taskIndex + ']')
                       );
                   });
                   return lines.join('\n');

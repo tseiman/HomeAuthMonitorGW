@@ -384,6 +384,9 @@ func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
 	if item := items["automation.gateway.wago.rtc_battery"]; item.valueMap != "WAGO RTC battery status" {
 		t.Fatalf("RTC item=%+v", item)
 	}
+	if item := items["automation.gateway.wago.iec_cycle_time"]; item.valueType != "FLOAT" || item.units != "µs" {
+		t.Fatalf("WAGO IEC cycle time=%+v", item)
+	}
 	if item := items["automation.gateway.phoenix.status"]; item.valueMap != "NUT UPS status" {
 		t.Fatalf("UPS status item=%+v", item)
 	}
@@ -488,7 +491,7 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		t.Fatalf("project version=%q", got)
 	}
 	software := runJavaScript("automation.gateway.wago.software_info")
-	for _, want := range []string{"Project ID: 16507229", "Project name: Althegnenberg_Heimauto10.pro", "Project version: Not set", "Task 1: MainTask", "Status: 0", "Cycle time: 6", "Minimum: 5", "Maximum: 1044", "Average: 7"} {
+	for _, want := range []string{"Project ID: 16507229", "Project name: Althegnenberg_Heimauto10.pro", "Project version: Not set", "Task 1: MainTask", "Status: 0", "Cycle time: 6 µs", "Minimum: 5 µs", "Maximum: 1044 µs", "Average: 7 µs"} {
 		if !strings.Contains(software, want) {
 			t.Fatalf("software information missing %q: %q", want, software)
 		}
