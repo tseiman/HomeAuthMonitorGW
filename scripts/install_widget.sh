@@ -2,16 +2,31 @@
 # Install or update the wago_kbus Zabbix custom widget.
 #
 # Usage:
-#   scripts/install_widget.sh [--zabbix-modules-dir DIR] [--dry-run]
+#   scripts/install_widget.sh [--zabbix-modules-dir DIR] [--web-group GROUP] [--dry-run]
 #
 # Options:
 #   --zabbix-modules-dir DIR   Absolute path to the Zabbix frontend modules directory.
 #                              Default: /usr/share/zabbix/modules
+#   --web-group GROUP          Unix group that runs the Zabbix web frontend (e.g. www-data,
+#                              apache, nginx, zabbix).  Used to set group-read permissions
+#                              on custom asset directories.  Default: www-data
 #   --dry-run                  Show what would be done without making any changes.
 #
-# Update behaviour: the destination is replaced via a stage-and-swap.  Running this
-# script a second time will never produce a nested wago_kbus/wago_kbus directory and
-# stale files from the previous version are always removed.
+# Environment variables:
+#   WAGO_KBUS_DATA_DIR         Override the persistent custom data directory.
+#                              Default: /var/lib/zabbix/wago_kbus
+#                              Set this in tests to avoid writing to /var/lib.
+#
+# Widget module directory (/usr/share/zabbix/modules/wago_kbus):
+#   Replaced atomically on each run via stage-and-swap; stale files are removed.
+#   Running this script a second time is safe and idempotent.
+#
+# Persistent custom SVG data ($WAGO_KBUS_DATA_DIR, default /var/lib/zabbix/wago_kbus):
+#   Created only if absent; NEVER overwritten or deleted on install/update.
+#   /var/lib is the FHS location for persistent application state — outside the
+#   package-managed module tree so normal widget updates never touch custom assets.
+#   Permissions: root:<web-group> 750 (dirs) and 640 (files) — readable by the web
+#   server but not writable, so a compromised frontend cannot modify its own config.
 #
 # Safety checks performed before any write:
 #   - --zabbix-modules-dir must be an absolute, non-empty path.
@@ -23,10 +38,14 @@
 set -euo pipefail
 
 ZABBIX_MODULES_DIR="/usr/share/zabbix/modules"
+WEB_GROUP="www-data"
 DRY_RUN=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WIDGET_SRC="${REPO_ROOT}/zabbix/modules/wago_kbus"
+
+# Persistent custom data directory (overridable via env for testing).
+CUSTOM_DATA_DIR="${WAGO_KBUS_DATA_DIR:-/var/lib/zabbix/wago_kbus}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +55,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ZABBIX_MODULES_DIR="$2"
+            shift 2
+            ;;
+        --web-group)
+            if [[ -z "${2:-}" ]]; then
+                echo "ERROR: --web-group requires a non-empty argument." >&2
+                exit 1
+            fi
+            WEB_GROUP="$2"
             shift 2
             ;;
         --dry-run)
@@ -62,8 +89,13 @@ fi
 WIDGET_DEST="${ZABBIX_MODULES_DIR}/wago_kbus"
 WIDGET_STAGE="${WIDGET_DEST}.new.$$"
 
-echo "Source:      ${WIDGET_SRC}"
-echo "Destination: ${WIDGET_DEST}"
+CUSTOM_IMAGES_DIR="${CUSTOM_DATA_DIR}/images"
+CUSTOM_MAP_FILE="${CUSTOM_DATA_DIR}/custom_svg_map.json"
+STARTER_MAP='{"controllers":{},"modules":{}}'
+
+echo "Source:           ${WIDGET_SRC}"
+echo "Widget dest:      ${WIDGET_DEST}"
+echo "Custom data dir:  ${CUSTOM_DATA_DIR}"
 
 # --- Source validation -------------------------------------------------------
 
@@ -76,23 +108,46 @@ fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then
     echo "Dry run — no changes will be made."
+
+    echo ""
+    echo "Widget module (stage-and-swap):"
     if [[ -L "${ZABBIX_MODULES_DIR}" ]]; then
-        echo "NOTE: ${ZABBIX_MODULES_DIR} is a symlink — would reject and abort."
+        echo "  NOTE: ${ZABBIX_MODULES_DIR} is a symlink — would reject and abort."
     elif [[ ! -d "${ZABBIX_MODULES_DIR}" ]]; then
-        echo "NOTE: ${ZABBIX_MODULES_DIR} does not exist — would abort."
+        echo "  NOTE: ${ZABBIX_MODULES_DIR} does not exist — would abort."
     fi
     if [[ -L "${WIDGET_DEST}" ]]; then
-        echo "NOTE: ${WIDGET_DEST} is a symlink — would reject and abort."
+        echo "  NOTE: ${WIDGET_DEST} is a symlink — would reject and abort."
     elif [[ -e "${WIDGET_DEST}" && ! -d "${WIDGET_DEST}" ]]; then
-        echo "NOTE: ${WIDGET_DEST} exists but is not a directory — would reject and abort."
+        echo "  NOTE: ${WIDGET_DEST} exists but is not a directory — would reject and abort."
     fi
-    echo "Would: cp -r '${WIDGET_SRC}' '${WIDGET_STAGE}'"
+    echo "  Would: cp -r '${WIDGET_SRC}' '${WIDGET_STAGE}'"
     if [[ -d "${WIDGET_DEST}" ]]; then
-        echo "Would: rm -rf '${WIDGET_DEST}'  (replaces existing installation; removes stale files)"
+        echo "  Would: rm -rf '${WIDGET_DEST}'  (replaces existing; removes stale files)"
     fi
-    echo "Would: mv '${WIDGET_STAGE}' '${WIDGET_DEST}'"
-    if id www-data &>/dev/null 2>&1 && [[ $EUID -eq 0 ]]; then
-        echo "Would: chown -R www-data:www-data '${WIDGET_DEST}'"
+    echo "  Would: mv '${WIDGET_STAGE}' '${WIDGET_DEST}'"
+    if id "${WEB_GROUP}" &>/dev/null 2>&1 && [[ $EUID -eq 0 ]]; then
+        echo "  Would: chown -R root:${WEB_GROUP} '${WIDGET_DEST}' && chmod ..."
+    fi
+
+    echo ""
+    echo "Persistent custom data (only-if-absent, never overwritten):"
+    for path in "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}"; do
+        if [[ -d "${path}" ]]; then
+            echo "  Exists (skip): ${path}"
+        else
+            echo "  Would create:  ${path}"
+        fi
+    done
+    if [[ -f "${CUSTOM_MAP_FILE}" ]]; then
+        echo "  Exists (skip): ${CUSTOM_MAP_FILE}"
+    else
+        echo "  Would create:  ${CUSTOM_MAP_FILE}  (starter: ${STARTER_MAP})"
+    fi
+    if [[ $EUID -eq 0 ]]; then
+        echo "  Would set: root:${WEB_GROUP} 750 on dirs, 640 on files (created paths only)"
+    else
+        echo "  Note: not root — permissions would not be set."
     fi
     exit 0
 fi
@@ -123,7 +178,7 @@ if [[ -e "${WIDGET_DEST}" && ! -d "${WIDGET_DEST}" ]]; then
     exit 1
 fi
 
-# --- Stage-and-swap install --------------------------------------------------
+# --- Stage-and-swap widget install -------------------------------------------
 
 cleanup() {
     if [[ -d "${WIDGET_STAGE}" ]]; then
@@ -135,26 +190,80 @@ trap cleanup EXIT
 echo "Staging widget files..."
 cp -r "${WIDGET_SRC}" "${WIDGET_STAGE}"
 
-if id www-data &>/dev/null 2>&1 && [[ $EUID -eq 0 ]]; then
-    echo "Setting ownership to www-data..."
-    chown -R www-data:www-data "${WIDGET_STAGE}"
+if id "${WEB_GROUP}" &>/dev/null 2>&1 && [[ $EUID -eq 0 ]]; then
+    echo "Setting widget ownership to root:${WEB_GROUP}..."
+    chown -R root:"${WEB_GROUP}" "${WIDGET_STAGE}"
 fi
 
 if [[ -d "${WIDGET_DEST}" ]]; then
-    echo "Removing previous installation (${WIDGET_DEST})..."
+    echo "Removing previous widget installation (${WIDGET_DEST})..."
     rm -rf "${WIDGET_DEST}"
 fi
 
 mv "${WIDGET_STAGE}" "${WIDGET_DEST}"
 
 if [[ $EUID -ne 0 ]]; then
-    echo "Note: not running as root; ownership not changed. Run with sudo on a live server."
-elif ! id www-data &>/dev/null 2>&1; then
-    echo "Note: www-data user not found; adjust ownership manually if needed."
+    echo "Note: not running as root; widget ownership not changed. Run with sudo on a live server."
+elif ! id "${WEB_GROUP}" &>/dev/null 2>&1; then
+    echo "Note: group '${WEB_GROUP}' not found; adjust ownership manually (--web-group to specify)."
 fi
 
+# --- Persistent custom data (only-if-absent) ---------------------------------
+# These paths are NEVER deleted or overwritten; they survive every widget update.
+
+echo ""
+echo "Checking persistent custom data..."
+
+_created_custom=false
+
+if [[ ! -d "${CUSTOM_DATA_DIR}" ]]; then
+    mkdir -p "${CUSTOM_DATA_DIR}"
+    echo "  Created: ${CUSTOM_DATA_DIR}"
+    _created_custom=true
+else
+    echo "  Exists (preserved): ${CUSTOM_DATA_DIR}"
+fi
+
+if [[ ! -d "${CUSTOM_IMAGES_DIR}" ]]; then
+    mkdir -p "${CUSTOM_IMAGES_DIR}"
+    echo "  Created: ${CUSTOM_IMAGES_DIR}"
+    _created_custom=true
+else
+    echo "  Exists (preserved): ${CUSTOM_IMAGES_DIR}"
+fi
+
+if [[ ! -f "${CUSTOM_MAP_FILE}" ]]; then
+    printf '%s\n' "${STARTER_MAP}" > "${CUSTOM_MAP_FILE}"
+    echo "  Created: ${CUSTOM_MAP_FILE}"
+    _created_custom=true
+else
+    echo "  Exists (preserved): ${CUSTOM_MAP_FILE}"
+fi
+
+# Set permissions on custom data only if we just created it (or if root and group exists).
+# root:<web-group> 750/640: readable by web server, not writable.
+if [[ $EUID -eq 0 ]] && id "${WEB_GROUP}" &>/dev/null 2>&1; then
+    chown root:"${WEB_GROUP}" "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}" 2>/dev/null || true
+    chmod 750 "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}" 2>/dev/null || true
+    chown root:"${WEB_GROUP}" "${CUSTOM_MAP_FILE}" 2>/dev/null || true
+    chmod 640 "${CUSTOM_MAP_FILE}" 2>/dev/null || true
+elif [[ $EUID -ne 0 ]]; then
+    echo "  Note: not running as root; permissions on custom data not set."
+    echo "        Run with sudo on a live server, or set manually:"
+    echo "          sudo chown root:${WEB_GROUP} '${CUSTOM_DATA_DIR}' '${CUSTOM_IMAGES_DIR}' '${CUSTOM_MAP_FILE}'"
+    echo "          sudo chmod 750 '${CUSTOM_DATA_DIR}' '${CUSTOM_IMAGES_DIR}'"
+    echo "          sudo chmod 640 '${CUSTOM_MAP_FILE}'"
+fi
+
+echo ""
 echo "Done. Next steps:"
 echo "  1. In Zabbix UI → Administration → General → Modules, click 'Scan directory'."
 echo "  2. Enable the 'WAGO K-bus Visualizer' module."
 echo "  3. Import or update the HomeAuthMonitorGW template (zabbix/template_homeauthmonitorgw.yaml)."
 echo "  4. The WAGO 750-880 dashboard will now use the K-bus Visualizer widget."
+echo ""
+echo "  To add a custom module/controller SVG (no restart needed):"
+echo "    sudo cp your-module.svg '${CUSTOM_IMAGES_DIR}/'"
+echo "    sudo chown root:${WEB_GROUP} '${CUSTOM_IMAGES_DIR}/your-module.svg'"
+echo "    sudo chmod 640 '${CUSTOM_IMAGES_DIR}/your-module.svg'"
+echo "    Then add the key to '${CUSTOM_MAP_FILE}' — see README for JSON format."

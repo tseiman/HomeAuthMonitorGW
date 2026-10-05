@@ -455,7 +455,134 @@ automatically.  If `wioArticleName` is not collected, the generic controller fal
 | 750-511 | `wago_0750-0511.svg` |
 | All others | `wago_0750-xxxx_modul.svg` (fallback) |
 
-#### Adding a new module SVG
+#### Custom SVG assets — persistent, update-safe
+
+Custom SVG files and their article mappings live under `/var/lib/zabbix/wago_kbus/`, which
+is **completely separate from the package-managed module tree** at
+`/usr/share/zabbix/modules/wago_kbus/`.  Running `install_widget.sh` to update the widget
+never touches `/var/lib/zabbix/wago_kbus/` — custom assets survive every widget update.
+
+> **FHS rationale:** `/var/lib` is the standard Linux location for persistent, mutable
+> application state.  `/usr/share` is for read-only, package-managed files.  Keeping custom
+> data in `/var/lib` gives a clean separation: the widget vendor manages `/usr/share`, the
+> site admin manages `/var/lib`.
+
+**Directory layout created automatically by `install_widget.sh`:**
+
+```
+/var/lib/zabbix/wago_kbus/
+├── custom_svg_map.json    # article → filename mapping (root:www-data 640)
+└── images/                # custom SVG files          (root:www-data 750)
+    └── *.svg
+```
+
+Permissions are set root-owned and group-readable (not group-writable) so the web server
+process can read assets but cannot modify its own configuration.  If your Zabbix frontend
+runs under a group other than `www-data`, pass `--web-group GROUP` to `install_widget.sh`.
+
+**`custom_svg_map.json` schema:**
+
+```json
+{
+  "controllers": {
+    "750-881": "wago_custom_881.svg"
+  },
+  "modules": {
+    "750-600": "wago_0750-0600.svg",
+    "750-5xx": "wago_generic_5xx.svg"
+  }
+}
+```
+
+- Keys follow the same WAGO article format as the built-in maps.
+- Concrete variant keys (e.g. `750-511/000-002`) are looked up exactly before the base
+  is normalised; `750-511/000-002` and `750-511` can have different SVGs.
+- Generic keys containing `x` (e.g. `750-5xx`) are supported only as explicit exact keys —
+  they never accidentally absorb a concrete article like `750-511`.
+- Custom entries override built-in entries with the same key.
+- Malformed JSON, missing sections, unreadable files, and symlinks are silently skipped;
+  the widget falls back to built-in SVGs without breaking.
+
+**Fallback hint in tooltips:** when a controller or module uses the generic fallback SVG
+(because no specific SVG is configured), its hover tooltip appends a brief hint showing the
+normalized key to add and the paths to use.  The hint is visible on hover only and does not
+appear on the main rail.
+
+##### Installing the custom data directory
+
+`install_widget.sh` creates the layout on first install only:
+
+```bash
+sudo ./scripts/install_widget.sh
+# For a non-www-data frontend group:
+sudo ./scripts/install_widget.sh --web-group apache
+```
+
+##### Adding a custom SVG
+
+```bash
+# 1. Copy the SVG to the images directory:
+sudo cp wago_custom_881.svg /var/lib/zabbix/wago_kbus/images/
+sudo chown root:www-data /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
+sudo chmod 640 /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
+
+# 2. Register it in the map (edit as root):
+sudo nano /var/lib/zabbix/wago_kbus/custom_svg_map.json
+# Add under "controllers": { "750-881": "wago_custom_881.svg" }
+
+# 3. No widget reinstall or Zabbix restart needed.
+#    The widget reads the map on every page render.
+```
+
+##### Updating a custom SVG
+
+Replace the file in place.  The map entry does not need to change.
+
+```bash
+sudo cp new_wago_custom_881.svg /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
+sudo chown root:www-data /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
+sudo chmod 640 /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
+```
+
+##### Removing a custom SVG
+
+Remove the key from `custom_svg_map.json` (the file itself can stay or be deleted).  The
+widget will fall back to the built-in SVG for that article.
+
+##### Backup and restore
+
+```bash
+# Backup:
+sudo tar -czf wago_kbus_custom_$(date +%Y%m%d).tar.gz /var/lib/zabbix/wago_kbus/
+
+# Restore:
+sudo tar -xzf wago_kbus_custom_20261005.tar.gz -C /
+sudo chown -R root:www-data /var/lib/zabbix/wago_kbus/
+sudo chmod 750 /var/lib/zabbix/wago_kbus/ /var/lib/zabbix/wago_kbus/images/
+sudo chmod 640 /var/lib/zabbix/wago_kbus/custom_svg_map.json
+sudo chmod 640 /var/lib/zabbix/wago_kbus/images/*.svg
+```
+
+##### Multi-frontend synchronization
+
+Zabbix HA or load-balanced deployments have one frontend per node; each reads
+`/var/lib/zabbix/wago_kbus/` locally.  Synchronize custom assets across nodes with
+configuration management (Ansible, Puppet, Chef) or a shared NFS mount at that path.
+
+Example Ansible task:
+
+```yaml
+- name: Sync wago_kbus custom assets
+  synchronize:
+    src: /var/lib/zabbix/wago_kbus/
+    dest: /var/lib/zabbix/wago_kbus/
+  delegate_to: primary_zabbix_frontend
+```
+
+#### Adding a new built-in module SVG (for contribution to this repo)
+
+Use this path when an SVG should ship with the widget for all users, not just
+your site.  Site-specific SVGs belong in the custom asset dir above.
 
 1. Obtain the `.elmt` source from the qelectrotech-elements repository (CC BY 4.0; see
    `tooling/qet_to_svg/PROVENANCE.md` for full attribution requirements).

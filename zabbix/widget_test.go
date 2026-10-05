@@ -248,7 +248,10 @@ func TestKbusLayoutMissingWioArticleName(t *testing.T) {
 }
 
 // TestModuleSvgResolution runs the PHP matching logic (extracted inline) against the
-// requirement test cases from req §5 using the php CLI.
+// requirement test cases using the php CLI.  The function now uses 3-step resolution:
+//   1. Exact key (enables explicit generic-key custom mappings).
+//   2. Wildcard/family patterns without explicit entry → fallback.
+//   3. Concrete variant: strip '/...' suffix, look up base.
 func TestModuleSvgResolution(t *testing.T) {
 	php, err := exec.LookPath("php")
 	if err != nil {
@@ -259,25 +262,42 @@ func TestModuleSvgResolution(t *testing.T) {
 	phpLogic := `<?php
 function resolveModuleSvg(string $article, array $svgModuleMap, string $fallback): string {
     $article = trim($article);
+    // Step 1: exact key (supports deliberate generic-key custom mappings).
+    if (array_key_exists($article, $svgModuleMap)) {
+        return $svgModuleMap[$article];
+    }
+    // Step 2: wildcard/family patterns without explicit entry → fallback.
     if (stripos($article, 'x') !== false || strpos($article, '*') !== false) {
         return $fallback;
     }
+    // Step 3: concrete variant — strip suffix and look up base.
     $base = trim(preg_replace('/\/.*$/', '', $article));
     return $svgModuleMap[$base] ?? $fallback;
 }
-$map = ['750-511' => 'wago_0750-0511.svg'];
-$fb  = 'wago_0750-xxxx_modul.svg';
+
+$map    = ['750-511' => 'wago_0750-0511.svg'];
+$mapGen = ['750-511' => 'wago_0750-0511.svg', '750-5xx' => 'custom_5xx.svg'];
+$fb     = 'wago_0750-xxxx_modul.svg';
+
 $cases = [
-    ['750-511/000-002', 'wago_0750-0511.svg'],
-    ['750-511',         'wago_0750-0511.svg'],
-    ['750-5xx',         'wago_0750-xxxx_modul.svg'],
-    ['750-4xx',         'wago_0750-xxxx_modul.svg'],
-    ['750-999',         'wago_0750-xxxx_modul.svg'],
-    ['750-5XX',         'wago_0750-xxxx_modul.svg'],
-    ['750-5xX/000-001', 'wago_0750-xxxx_modul.svg'],
+    // Concrete variant normalises to base key.
+    ['750-511/000-002', $map,    'wago_0750-0511.svg'],
+    // Exact base key.
+    ['750-511',         $map,    'wago_0750-0511.svg'],
+    // Generic without explicit entry → fallback.
+    ['750-5xx',         $map,    'wago_0750-xxxx_modul.svg'],
+    ['750-4xx',         $map,    'wago_0750-xxxx_modul.svg'],
+    ['750-5XX',         $map,    'wago_0750-xxxx_modul.svg'],
+    ['750-5xX/000-001', $map,    'wago_0750-xxxx_modul.svg'],
+    // Unknown concrete article → fallback.
+    ['750-999',         $map,    'wago_0750-xxxx_modul.svg'],
+    // Generic WITH explicit custom entry → uses custom SVG (step 1 exact match).
+    ['750-5xx',         $mapGen, 'custom_5xx.svg'],
+    // Concrete variant 750-511/000-002 is NOT affected by generic custom entry '750-5xx'.
+    ['750-511/000-002', $mapGen, 'wago_0750-0511.svg'],
 ];
 $ok = true;
-foreach ($cases as [$input, $expected]) {
+foreach ($cases as [$input, $map, $expected]) {
     $got = resolveModuleSvg($input, $map, $fb);
     if ($got !== $expected) {
         echo "FAIL: resolveModuleSvg($input) = $got, want $expected\n";
