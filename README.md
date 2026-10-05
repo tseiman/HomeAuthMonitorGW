@@ -2,6 +2,8 @@
 
 HomeAuthMonitorGW is a small, read-only Linux monitoring gateway. It polls configured NUT and SNMPv3 sources, keeps the latest values in memory, and exposes them through an authenticated HTTPS/JSON API for systems such as Zabbix.
 
+[![HomeAuthMonitorGW architecture: SNMPv3 and NUT collectors feed an in-memory snapshot cache exposed through an authenticated read-only HTTPS REST API to Zabbix](docs/assets/homeauthmonitorgw-architecture.png)](docs/assets/homeauthmonitorgw-architecture.svg)
+
 - HTTP requests never trigger device access.
 - SNMP uses configured GET/BulkWalk operations only; there is no SET path.
 - NUT uses `LIST VAR` only.

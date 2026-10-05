@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1050" viewBox="0 0 1800 1050" role="img" aria-labelledby="title desc">
+  <title id="title">HomeAuthMonitorGW architecture</title>
+  <desc id="desc">Hand-drawn architecture diagram showing SNMPv3 and NUT inputs, configuration files, independent collectors, in-memory cache, authenticated read-only REST API, and Zabbix as an example consumer.</desc>
+  <defs>
+    <filter id="paper" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="7" result="noise"/>
+      <feColorMatrix in="noise" type="saturate" values="0" result="gray"/>
+      <feComponentTransfer in="gray"><feFuncA type="table" tableValues="0 0.035"/></feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="rough" x="-3%" y="-3%" width="106%" height="106%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" seed="12" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.4"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#1672a8"/></marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#27864b"/></marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#d97416"/></marker>
+    <style>
+      .ink{stroke:#17242e;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;filter:url(#rough)}
+      .thin{stroke-width:2.5}.box{fill:#fff;}.blue{fill:#dff3ff}.green{fill:#e0f6e6}.orange{fill:#fff0d9}.yellow{fill:#fff8c9}.pink{fill:#ffe6e1}.purple{fill:#eee6ff}.teal{fill:#dff8f5}
+      text{font-family:"Comic Sans MS","Segoe Print","Bradley Hand",sans-serif;fill:#17242e}
+      .title{font-size:54px;font-weight:700}.subtitle{font-size:24px;font-weight:700}.h1{font-size:30px;font-weight:700}.h2{font-size:23px;font-weight:700}.body{font-size:19px}.small{font-size:16px}.tiny{font-size:14px}.note{font-size:18px;font-style:italic;fill:#335266}
+      .blueLine{fill:none;stroke:#1672a8;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrowBlue)}
+      .greenLine{fill:none;stroke:#27864b;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrowGreen)}
+      .orangeLine{fill:none;stroke:#d97416;stroke-width:4;stroke-dasharray:11 10;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrowOrange)}
+      .dash{stroke-dasharray:10 9}.center{text-anchor:middle}.white{fill:#fff}.muted{fill:#526775}
+    </style>
+  </defs>
+  <rect width="1800" height="1050" fill="#fffefa" filter="url(#paper)"/>
+
+  <!-- Header -->
+  <text class="title center" x="900" y="68">HomeAuthMonitorGW Architecture</text>
+  <path d="M345 82 Q900 99 1454 80" fill="none" stroke="#51a9d6" stroke-width="9" stroke-linecap="round" opacity=".75"/>
+  <rect class="ink yellow" x="445" y="100" width="910" height="55" rx="25"/>
+  <text class="subtitle center" x="900" y="137">Read-only collection • independent sources • cached HTTPS snapshots</text>
+  <text class="note" x="55" y="75" transform="rotate(-7 55 75)">No device control path!</text>
+  <path d="M85 88 q15 18 30 0 q-1 23 -15 32 q-14-9-15-32" fill="none" stroke="#d14a5a" stroke-width="3"/>
+
+  <!-- Left: field interfaces -->
+  <rect class="ink blue" x="35" y="190" width="380" height="500" rx="34"/>
+  <text class="h1 center" x="225" y="230">Field Interfaces</text>
+
+  <rect class="ink box thin" x="62" y="255" width="325" height="172" rx="22"/>
+  <text class="h2 center" x="225" y="287">SNMPv3 Devices</text>
+  <!-- device icon -->
+  <rect class="ink blue thin" x="84" y="309" width="76" height="82" rx="8"/>
+  <circle cx="103" cy="330" r="5" fill="#27864b"/><circle cx="103" cy="350" r="5" fill="#27864b"/><circle cx="103" cy="370" r="5" fill="#27864b"/>
+  <path class="ink thin" d="M121 329 h22 M121 350 h22 M121 371 h22" fill="none"/>
+  <!-- lock -->
+  <rect class="ink green thin" x="174" y="318" width="42" height="39" rx="6"/><path class="ink thin" d="M183 318 v-10 q12-18 24 0 v10" fill="none"/>
+  <text class="body" x="231" y="327">GET only</text>
+  <text class="body" x="231" y="354">fixed OID allowlist</text>
+  <text class="body" x="174" y="390">optional bounded discovery</text>
+
+  <rect class="ink box thin" x="62" y="452" width="325" height="204" rx="22"/>
+  <text class="h2 center" x="225" y="484">NUT-compatible UPS</text>
+  <!-- battery -->
+  <rect class="ink green thin" x="83" y="510" width="72" height="98" rx="8"/><rect x="103" y="500" width="31" height="12" rx="3" fill="#17242e"/>
+  <path d="M96 586 h46 v-55 h-46z" fill="#8dde9e"/><path d="M117 541 l-11 21 h13 l-7 18 22-27 h-14 l8-12z" fill="#fff" stroke="#17242e" stroke-width="2"/>
+  <rect class="ink orange thin" x="184" y="511" width="165" height="58" rx="15"/>
+  <text class="h2 center" x="266" y="546">NUT driver</text>
+  <path class="blueLine" d="M155 548 L181 548"/>
+  <rect class="ink blue thin" x="184" y="584" width="165" height="50" rx="15"/>
+  <text class="h2 center" x="266" y="616">upsd :3493</text>
+  <path class="blueLine" d="M266 570 L266 581"/>
+  <text class="small center muted" x="225" y="677">Local LIST VAR, read only</text>
+
+  <!-- Center gateway -->
+  <path class="ink teal" d="M514 232 C530 183 604 184 637 211 C667 168 748 175 771 215 C812 174 898 181 914 229 C960 196 1034 222 1036 272 C1089 284 1091 353 1058 378 C1087 421 1051 478 1007 477 C994 529 921 542 886 510 C850 550 773 542 751 505 C705 538 628 520 625 471 C572 479 534 431 553 390 C508 366 494 296 529 267 Z"/>
+  <text class="h1 center" x="790" y="260">automation-gateway</text>
+  <text class="small center muted" x="790" y="286">systemd service • unprivileged runtime</text>
+
+  <rect class="ink blue thin" x="572" y="309" width="204" height="91" rx="18"/>
+  <text class="h2 center" x="674" y="340">SNMP collector</text>
+  <text class="small center" x="674" y="368">batched GET • SNMPv3</text>
+  <text class="small center" x="674" y="390">discovery stays separate</text>
+
+  <rect class="ink green thin" x="803" y="309" width="204" height="91" rx="18"/>
+  <text class="h2 center" x="905" y="340">NUT collector</text>
+  <text class="small center" x="905" y="370">LIST VAR via upsd</text>
+
+  <rect class="ink purple thin" x="586" y="421" width="190" height="64" rx="17"/>
+  <text class="h2 center" x="681" y="449">Metadata</text>
+  <text class="small center" x="681" y="473">names • units • enums</text>
+
+  <rect class="ink yellow thin" x="802" y="421" width="190" height="64" rx="17"/>
+  <text class="h2 center" x="897" y="449">Source health</text>
+  <text class="small center" x="897" y="473">available • stale • errors</text>
+
+  <path class="blueLine" d="M415 332 C470 332 506 349 568 349"/>
+  <text class="small" x="435" y="315" fill="#1672a8">SNMP responses</text>
+  <path class="blueLine" d="M415 585 C500 580 530 376 799 356"/>
+  <text class="small" x="449" y="552" fill="#1672a8">NUT variables</text>
+
+  <!-- Cache -->
+  <g>
+    <ellipse class="ink teal" cx="790" cy="606" rx="229" ry="42"/>
+    <path class="ink teal" d="M561 606 v106 c0 24 103 43 229 43 s229-19 229-43V606"/>
+    <ellipse class="ink teal" cx="790" cy="712" rx="229" ry="43"/>
+    <text class="h1 center" x="790" y="616">In-memory snapshot cache</text>
+    <text class="body center" x="790" y="656">last known good metrics • timestamps • discovery</text>
+    <text class="body center" x="790" y="687">one isolated state per configured source</text>
+    <text class="small center muted" x="790" y="727">HTTP reads cache only — never starts a device poll</text>
+  </g>
+  <path class="greenLine" d="M790 512 L790 558"/>
+
+  <!-- Config files -->
+  <rect class="ink orange" x="35" y="725" width="475" height="240" rx="30"/>
+  <text class="h1 center" x="272" y="763">Configuration Inputs</text>
+  <text class="body" x="68" y="802">config.yaml + ordered --config layers</text>
+  <text class="body" x="68" y="834">tokens/* → REST bearer authentication</text>
+  <text class="body" x="68" y="866">secrets/* → SNMPv3 auth + privacy</text>
+  <text class="body" x="68" y="898">tls/server.crt + server.key → HTTPS</text>
+  <text class="body" x="68" y="930">mib-metadata.json → names, units, enums</text>
+  <path class="orangeLine" d="M510 826 C555 785 523 565 566 495"/>
+  <text class="small" x="425" y="710" fill="#d97416">validate + atomic reload</text>
+
+  <!-- API zone -->
+  <rect class="ink green" x="1110" y="205" width="395" height="550" rx="36"/>
+  <text class="h1 center" x="1308" y="245">HTTPS REST API</text>
+  <!-- shield -->
+  <path class="ink blue thin" d="M1150 270 l42-16 42 16 v37 q0 39-42 59 q-42-20-42-59z"/>
+  <path class="ink thin" d="M1172 307 l15 15 27-36" fill="none" stroke="#27864b" stroke-width="6"/>
+  <text class="body" x="1250" y="282">TLS certificate</text>
+  <text class="body" x="1250" y="311">client IP / CIDR allowlist</text>
+  <text class="body" x="1250" y="340">Bearer token</text>
+
+  <rect class="ink box thin" x="1142" y="390" width="330" height="243" rx="20"/>
+  <text class="h2 center" x="1307" y="422">GET-only endpoints</text>
+  <text class="body" x="1170" y="458">/api/v1/health</text>
+  <text class="body" x="1170" y="491">/api/v1/sources</text>
+  <text class="body" x="1170" y="524">/api/v1/metrics</text>
+  <text class="body" x="1170" y="557">/api/v1/sources/{name}</text>
+  <text class="body" x="1170" y="590">…/metrics   •   …/discovery</text>
+  <text class="small center muted" x="1307" y="618">JSON snapshots • Cache-Control: no-store</text>
+
+  <rect class="ink yellow thin" x="1150" y="657" width="314" height="72" rx="18"/>
+  <text class="h2 center" x="1307" y="687">Safe request boundary</text>
+  <text class="small center" x="1307" y="713">clients cannot choose hosts, OIDs or commands</text>
+
+  <path class="greenLine" d="M1019 632 C1060 632 1071 521 1106 521"/>
+  <text class="small" x="1025" y="603" fill="#27864b">cached JSON</text>
+
+  <!-- Zabbix sink -->
+  <rect class="ink blue" x="1542" y="276" width="226" height="375" rx="34"/>
+  <text class="h1 center" x="1655" y="321">Zabbix</text>
+  <text class="small center muted" x="1655" y="347">example consumer / sink</text>
+  <!-- dashboard icon -->
+  <rect class="ink box thin" x="1573" y="374" width="164" height="102" rx="12"/>
+  <rect x="1590" y="392" width="55" height="30" rx="5" fill="#b2f2bb" stroke="#17242e" stroke-width="2"/>
+  <rect x="1660" y="392" width="58" height="30" rx="5" fill="#fff3bf" stroke="#17242e" stroke-width="2"/>
+  <path d="M1592 456 l23-18 20 8 27-35 20 22 31-26" fill="none" stroke="#1672a8" stroke-width="4"/>
+  <text class="body center" x="1655" y="510">one HTTPS master item</text>
+  <text class="body center" x="1655" y="540">dependent items + LLD</text>
+  <text class="body center" x="1655" y="570">per-source health KPIs</text>
+  <text class="body center" x="1655" y="600">dashboards + triggers</text>
+
+  <!-- Request / response arrows -->
+  <path d="M1540 416 C1519 416 1514 416 1507 416" fill="none" stroke="#d97416" stroke-width="4" stroke-dasharray="10 8" marker-end="url(#arrowOrange)"/>
+  <text class="small center" x="1518" y="395" fill="#d97416" transform="rotate(-90 1518 395)">HTTPS GET</text>
+  <path d="M1507 474 C1519 474 1528 474 1540 474" fill="none" stroke="#27864b" stroke-width="5" marker-end="url(#arrowGreen)"/>
+  <text class="small" x="1510" y="500" fill="#27864b">JSON</text>
+  <path d="M1515 690 q35 30 70 0" fill="none" stroke="#d14a5a" stroke-width="3" stroke-dasharray="7 7"/>
+  <text class="note center" x="1645" y="716">No direct device access</text>
+
+  <!-- Side notes -->
+  <text class="note" x="1518" y="185" transform="rotate(5 1518 185)">TLS + token + allowlist</text>
+  <path d="M1602 198 q12 13 24 0 q0 18-12 25 q-12-7-12-25" fill="none" stroke="#27864b" stroke-width="3"/>
+  <text class="note" x="1065" y="835" transform="rotate(-5 1065 835)">One failed source does not stop the others.</text>
+
+  <!-- Bottom summary strip -->
+  <rect class="ink blue" x="548" y="797" width="1220" height="178" rx="30"/>
+  <text class="h2" x="578" y="832">End-to-end flow</text>
+  <g>
+    <circle class="ink green thin" cx="624" cy="887" r="32"/><text class="h1 center" x="624" y="898">1</text>
+    <text class="h2" x="669" y="878">Poll</text><text class="small" x="669" y="905">SNMP GET or NUT LIST VAR</text>
+    <path class="greenLine" d="M837 887 L884 887"/>
+    <circle class="ink purple thin" cx="930" cy="887" r="32"/><text class="h1 center" x="930" y="898">2</text>
+    <text class="h2" x="975" y="878">Normalize</text><text class="small" x="975" y="905">metadata + source snapshot</text>
+    <path class="greenLine" d="M1176 887 L1223 887"/>
+    <circle class="ink yellow thin" cx="1269" cy="887" r="32"/><text class="h1 center" x="1269" y="898">3</text>
+    <text class="h2" x="1314" y="878">Serve</text><text class="small" x="1314" y="905">authenticated cached REST</text>
+    <path class="greenLine" d="M1506 887 L1546 887"/>
+    <circle class="ink orange thin" cx="1592" cy="887" r="32"/><text class="h1 center" x="1592" y="898">4</text>
+    <text class="h2" x="1637" y="878">Consume</text><text class="small" x="1637" y="905">Zabbix via HTTPS</text>
+  </g>
+  <text class="small center muted" x="1158" y="950">Read-only by design: no SNMP SET, no client-selected target, no persistent metric database.</text>
+</svg>
