@@ -381,25 +381,28 @@ hover.
 
 #### Widget installation
 
+Use the provided install script for both first install and updates.  It validates the
+destination, stages the new version, atomically replaces the previous installation
+(removing stale files), and sets `www-data` ownership.  Running it a second time is safe.
+
 ```bash
 # Clone or update the repository first:
 git clone https://github.com/tseiman/HomeAuthMonitorGW.git
 cd HomeAuthMonitorGW
 
-# Copy the widget to the Zabbix modules directory (adjust path if different):
-sudo cp -r zabbix/modules/wago_kbus /usr/share/zabbix/modules/
-sudo chown -R www-data:www-data /usr/share/zabbix/modules/wago_kbus
-```
-
-Or use the provided helper which also validates the destination directory:
-
-```bash
+# Install or update (run as root/sudo):
 sudo ./scripts/install_widget.sh
-# Pass --dry-run to preview without making changes:
+
+# Preview without making changes:
 ./scripts/install_widget.sh --dry-run
-# Override the Zabbix modules path:
+
+# Override the Zabbix modules path (default: /usr/share/zabbix/modules):
 sudo ./scripts/install_widget.sh --zabbix-modules-dir /var/www/html/zabbix/modules
 ```
+
+> **Note:** Do not use `cp -r zabbix/modules/wago_kbus /usr/share/zabbix/modules/` directly
+> for updates — if the destination already exists, `cp -r` nests the source inside it and
+> leaves stale files.  The install script avoids this with a stage-and-swap.
 
 #### Enable the widget in Zabbix
 
@@ -474,6 +477,7 @@ automatically.  If `wioArticleName` is not collected, the generic controller fal
 3. Optionally add a human-readable description to `$WAGO_DESCRIPTIONS` in the same file.
 
 4. Re-install the widget: `sudo ./scripts/install_widget.sh`.
+   The script replaces the installed directory atomically; re-running it is safe and idempotent.
 
 5. Run the widget tests to confirm no regressions:
    ```bash
