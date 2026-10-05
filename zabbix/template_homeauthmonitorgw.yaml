@@ -68,6 +68,90 @@ zabbix_export:
               name: 'Automation gateway has no snapshot data for 5 minutes'
               priority: HIGH
               description: 'The authenticated HTTPS master item has produced no value for five minutes. Check TLS, allowlist, token, and gateway availability.'
+        - uuid: 1e0f1d2b76894e31ad44529eb2f21f4d
+          name: 'Automation gateway: Overall collector health'
+          type: DEPENDENT
+          key: automation.gateway.health.overall
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Aggregate of every configured collector. The lowest state wins: 0 not initialized, 1 previously initialized but unreachable or stale, 2 initialized with no metrics, 3 metrics received but a known health check failed, 4 all collectors healthy.'
+          valuemap:
+            name: 'Overall collector health'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var sourceNames = Object.keys(snapshot);
+                  if (sourceNames.length === 0) return 0;
+                  var overall = 4;
+                  function lower(state) {
+                      if (state < overall) overall = state;
+                  }
+                  function has(object, key) {
+                      return Object.prototype.hasOwnProperty.call(object, key);
+                  }
+                  function invalidOrNotZero(value) {
+                      return isNaN(Number(value)) || Number(value) !== 0;
+                  }
+                  sourceNames.forEach(function (sourceName) {
+                      var source = snapshot[sourceName];
+                      if (!source.last_success || source.last_success === '0001-01-01T00:00:00Z') {
+                          lower(0);
+                          return;
+                      }
+                      if (!source.available || source.stale) {
+                          lower(1);
+                          return;
+                      }
+                      if (source.metrics.length === 0) {
+                          lower(2);
+                          return;
+                      }
+                      var byName = {};
+                      var byOID = {};
+                      var wagoLike = false;
+                      source.metrics.forEach(function (metric) {
+                          byName[metric.name] = metric.value;
+                          if (metric.labels && typeof metric.labels.oid === 'string') {
+                              var oid = metric.labels.oid.replace(/^\./, '');
+                              byOID[oid] = metric.value;
+                              if (oid.indexOf('1.3.6.1.4.1.13576.') === 0) wagoLike = true;
+                          }
+                          if (metric.name.indexOf('wio') === 0) wagoLike = true;
+                      });
+                      var unhealthy = false;
+                      if (source.driver === 'nut') {
+                          var requiredNUT = ['ups.status', 'battery.charge', 'battery.temperature'];
+                          requiredNUT.forEach(function (name) { if (!has(byName, name)) unhealthy = true; });
+                          var status = String(byName['ups.status'] || '');
+                          var tokens = status ? status.split(/\s+/) : [];
+                          if (!status || tokens.indexOf('OL') < 0 || tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) unhealthy = true;
+                          var charge = Number(byName['battery.charge']);
+                          var temperature = Number(byName['battery.temperature']);
+                          if (isNaN(charge) || charge < Number('{$PHOENIX_BATTERY_WARNING}')) unhealthy = true;
+                          if (isNaN(temperature) || temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) unhealthy = true;
+                      } else if (source.driver === 'snmp' && wagoLike) {
+                          var errorGroup = '1.3.6.1.4.1.13576.10.1.20.1.0';
+                          var errorCode = '1.3.6.1.4.1.13576.10.1.20.2.0';
+                          var errorDescription = '1.3.6.1.4.1.13576.10.1.20.4.0';
+                          var rtcBattery = '1.3.6.1.4.1.13576.10.1.11.5.0';
+                          [errorGroup, errorCode, errorDescription, rtcBattery].forEach(function (oid) { if (!has(byOID, oid)) unhealthy = true; });
+                          if (has(byOID, errorGroup) && invalidOrNotZero(byOID[errorGroup])) unhealthy = true;
+                          if (has(byOID, errorCode) && invalidOrNotZero(byOID[errorCode])) unhealthy = true;
+                          if (has(byOID, rtcBattery) && invalidOrNotZero(byOID[rtcBattery])) unhealthy = true;
+                      }
+                      if (unhealthy) lower(3);
+                  });
+                  return overall;
+          tags:
+            - tag: component
+              value: health
+            - tag: scope
+              value: overall
         - uuid: 1fa248c88e9c48c38ed250719763a212
           name: 'WAGO: Collector health'
           type: DEPENDENT
@@ -1009,6 +1093,14 @@ zabbix_export:
                     - {type: STRING, name: reference, value: PHOEN}
                     - {type: INTEGER, name: source_type, value: '1'}
       valuemaps:
+        - uuid: 521eb88e34114a28ad1bf30bb30c5506
+          name: 'Overall collector health'
+          mappings:
+            - {value: '0', newvalue: 'Not initialized'}
+            - {value: '1', newvalue: 'Previously initialized, unreachable or stale'}
+            - {value: '2', newvalue: 'Initialized, no data'}
+            - {value: '3', newvalue: 'Data received, health check failed'}
+            - {value: '4', newvalue: Healthy}
         - uuid: 1e5c61784bae4102993378537c0773a5
           name: 'Collector health'
           mappings:

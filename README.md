@@ -355,6 +355,16 @@ The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Thei
 
 Every source discovered later also receives its own `automation.gateway.source.health["<source>"]` item automatically: healthy after a successful fresh poll, warning when stale, and critical when unavailable. Its detailed text and numeric metrics are likewise discovered automatically. The two device dashboards remain specialized views of the single sources selected by `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`; additional device-specific dashboards require another template instance or an additional specialized view, but their generic health and metrics require no template change.
 
+Above these per-source items, `automation.gateway.health.overall` summarizes every configured collector. The lowest state wins, so one unhealthy source cannot be hidden by healthy sources:
+
+- `0` — not initialized: there are no sources, or at least one registered source has never completed a successful poll.
+- `1` — previously initialized but now unreachable or stale; last-known-good metrics may still be retained.
+- `2` — initialized and reachable, but the successful poll returned no metrics.
+- `3` — current metrics are present, but a known SNMP diagnostic or NUT health check failed or required health metrics are missing.
+- `4` — every collector is initialized, current, non-empty, and passes all applicable known health checks.
+
+The item has its own `Overall collector health` value map. Before the HTTPS master item has received its first snapshot, dependent items cannot have a value; the separate master-item `nodata(...,5m)` trigger covers that condition. Once a valid empty or uninitialized snapshot exists, overall health returns `0`.
+
 ### Per-collector health events for Honeycomb
 
 [`scripts/health-kpi.py`](scripts/health-kpi.py) reads the same authenticated snapshot and emits one compact NDJSON event per collector. It deliberately emits no global aggregate, so `collector_name` can be used as the Honeycomb breakdown and each collector retains its own `health_status`, `health_score`, warning count, critical count, and reasons.

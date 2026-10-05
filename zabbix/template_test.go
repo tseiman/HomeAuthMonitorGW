@@ -85,7 +85,11 @@ type templateDocument struct {
 				} `yaml:"pages"`
 			} `yaml:"dashboards"`
 			ValueMaps []struct {
-				Name string `yaml:"name"`
+				Name     string `yaml:"name"`
+				Mappings []struct {
+					Value    string `yaml:"value"`
+					NewValue string `yaml:"newvalue"`
+				} `yaml:"mappings"`
 			} `yaml:"valuemaps"`
 		} `yaml:"templates"`
 	} `yaml:"zabbix_export"`
@@ -108,7 +112,7 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		t.Fatalf("template groups=%+v", document.Export.TemplateGroups)
 	}
 	template := document.Export.Templates[0]
-	if len(template.Items) != 16 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
+	if len(template.Items) != 17 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
 		t.Fatalf("master items=%+v", template.Items)
 	}
 	for _, item := range template.Items[1:] {
@@ -199,7 +203,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 42 {
+	if len(seen) != 44 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -379,6 +383,98 @@ func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
 	}
 	if !valueMaps["WAGO RTC battery status"] || !valueMaps["NUT UPS status"] {
 		t.Fatalf("value maps=%v", valueMaps)
+	}
+}
+
+// TestOverallHealthJavaScriptAggregatesEveryCollector verifies the five-state summary and worst-state precedence.
+func TestOverallHealthJavaScriptAggregatesEveryCollector(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	var scriptBody string
+	for _, item := range document.Export.Templates[0].Items {
+		if item.Key != "automation.gateway.health.overall" {
+			continue
+		}
+		if item.ValueType != "UNSIGNED" || item.ValueMap.Name != "Overall collector health" || item.MasterItem.Key != "automation.gateway.snapshot" {
+			t.Fatalf("overall health item=%+v", item)
+		}
+		for _, preprocessing := range item.Preprocessing {
+			if preprocessing.Type == "JAVASCRIPT" {
+				scriptBody = preprocessing.Parameters[0]
+			}
+		}
+	}
+	if scriptBody == "" {
+		t.Fatal("overall health JavaScript not found")
+	}
+	wantMap := map[string]string{
+		"0": "Not initialized",
+		"1": "Previously initialized, unreachable or stale",
+		"2": "Initialized, no data",
+		"3": "Data received, health check failed",
+		"4": "Healthy",
+	}
+	foundMap := false
+	for _, valueMap := range document.Export.Templates[0].ValueMaps {
+		if valueMap.Name != "Overall collector health" {
+			continue
+		}
+		foundMap = true
+		if len(valueMap.Mappings) != len(wantMap) {
+			t.Fatalf("overall value map=%+v", valueMap.Mappings)
+		}
+		for _, mapping := range valueMap.Mappings {
+			if wantMap[mapping.Value] != mapping.NewValue {
+				t.Fatalf("overall value map entry=%+v", mapping)
+			}
+		}
+	}
+	if !foundMap {
+		t.Fatal("overall health value map not found")
+	}
+	scriptBody = strings.NewReplacer(
+		"{$PHOENIX_BATTERY_CRITICAL}", "20",
+		"{$PHOENIX_BATTERY_WARNING}", "50",
+		"{$PHOENIX_TEMPERATURE_CRITICAL}", "55",
+		"{$PHOENIX_TEMPERATURE_WARNING}", "45",
+	).Replace(scriptBody)
+	initialized := `"driver":"snmp","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z"`
+	goodGeneric := `{"generic":{` + initialized + `,"metrics":[{"name":"sysUpTime","value":123,"value_type":"counter","timestamp":"2026-10-04T00:00:00Z"}]}}`
+	goodWAGO := `{"controller":{` + initialized + `,"metrics":[{"name":"wioErrorGroup","value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.1.0"}},{"name":"wioErrorCode","value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}},{"name":"wioErrorDescription","value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}},{"name":"wioRtcBatteryStatus","value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.11.5.0"}}]}}`
+	tests := []struct {
+		name, snapshot, want string
+	}{
+		{"no sources", `{}`, "0"},
+		{"registered but never successful", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]}}`, "0"},
+		{"previously successful but unavailable", `{"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "1"},
+		{"previously successful but stale", `{"stale":{"driver":"snmp","available":true,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "1"},
+		{"successful but empty", `{"empty":{` + initialized + `,"metrics":[]}}`, "2"},
+		{"NUT data reports a problem", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10},{"name":"battery.temperature","value":28}]}}`, "3"},
+		{"NUT health metrics are incomplete", `{"ups":{"driver":"nut","available":true,"stale":false,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"ups.status","value":"OL"}]}}`, "3"},
+		{"SNMP diagnostics report a problem", strings.Replace(goodWAGO, `"name":"wioErrorCode","value":0`, `"name":"wioErrorCode","value":7`, 1), "3"},
+		{"known generic data is healthy", goodGeneric, "4"},
+		{"complete healthy SNMP diagnostics are healthy", goodWAGO, "4"},
+		{"empty collector lowers healthy aggregate", `{"empty":{` + initialized + `,"metrics":[]},"generic":{` + initialized + `,"metrics":[{"name":"sysUpTime","value":123}]}}`, "2"},
+		{"uninitialized collector has lowest precedence", `{"new":{"driver":"snmp","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]},"failed":{"driver":"snmp","available":false,"stale":true,"last_success":"2026-10-04T00:00:00Z","metrics":[{"name":"retained","value":1}]}}`, "0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			script := "const value = process.argv[1]; function transform() {\n" + scriptBody + "\n} process.stdout.write(String(transform()));"
+			output, err := exec.Command(node, "-e", script, test.snapshot).CombinedOutput()
+			if err != nil || string(output) != test.want {
+				t.Fatalf("want=%q error=%v output=%q", test.want, err, output)
+			}
+		})
 	}
 }
 
