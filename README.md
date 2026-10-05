@@ -8,6 +8,23 @@ HomeAuthMonitorGW is a small, read-only Linux monitoring gateway. It polls confi
 - Clients cannot supply device addresses, OIDs, or protocol commands.
 - One failed source does not stop other collectors; its last successful snapshot becomes stale.
 
+## Contents
+
+- [Software dependencies](#software-dependencies)
+- [Build and installation](#build-and-installation)
+  - [TLS and token permissions](#tls-and-token-permissions)
+- [Cross-build and installation](#cross-build-and-installation)
+- [Configuration](#configuration)
+  - [NUT](#nut)
+  - [SNMPv3](#snmpv3)
+- [MIB metadata with `mib2json`](#mib-metadata-with-mib2json)
+  - [Which MIB files are needed?](#which-mib-files-are-needed)
+- [API and Zabbix](#api-and-zabbix)
+  - [Per-collector health events for Honeycomb](#per-collector-health-events-for-honeycomb)
+- [Update and rollback](#update-and-rollback)
+- [Security summary](#security-summary)
+- [License](#license)
+
 ## Software dependencies
 
 **Gateway runtime**
