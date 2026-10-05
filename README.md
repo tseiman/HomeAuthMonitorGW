@@ -325,6 +325,36 @@ Every endpoint requires both an allowed TCP peer and a bearer token:
 
 Import [`zabbix/template_homeauthmonitorgw.yaml`](zabbix/template_homeauthmonitorgw.yaml), set `{$AUTOMATION_GATEWAY_URL}`, secret `{$AUTOMATION_GATEWAY_TOKEN}`, `{$AUTOMATION_GATEWAY_INTERVAL}`, and `{$AUTOMATION_GATEWAY_TIMEOUT}`, and keep certificate verification enabled. Add the Zabbix server/proxy's actual TCP source address to `authentication.allowed_clients`. The template uses one HTTP master item and dependent discovery/items; it never contacts NUT or SNMP devices directly.
 
+The template stores strings as text and numeric metrics as trendable numeric items. SNMP TimeTicks are converted from centiseconds to seconds; `sysUpTime` uses Zabbix's `uptime` unit for a human-readable duration. The WAGO RTC value map displays `0` as `OK` and `1` as `Battery empty` without changing the numeric value used for alerting.
+
+Two independent device views are included:
+
+- **WAGO 750-880**: collector health, human-readable uptime, diagnostic text, error code, RTC battery, firmware, IEC task status, and cycle-time history.
+- **Phoenix Contact UPS**: collector health, NUT status, model, charge, runtime, battery temperature, output voltage, and battery history.
+
+The core items and dashboards use `{$WAGO_SOURCE}` and `{$PHOENIX_SOURCE}`. Their defaults match the example deployment (`wago-750-880-snmp3` and `ups-main`); override them at host level when source names differ. Phoenix warning and critical thresholds are controlled by `{$PHOENIX_BATTERY_WARNING}`, `{$PHOENIX_BATTERY_CRITICAL}`, `{$PHOENIX_TEMPERATURE_WARNING}`, and `{$PHOENIX_TEMPERATURE_CRITICAL}`. The WAGO and Phoenix health items and triggers are separate. An error in one collector does not change the other collector's health.
+
+### Per-collector health events for Honeycomb
+
+[`scripts/health-kpi.py`](scripts/health-kpi.py) reads the same authenticated snapshot and emits one compact NDJSON event per collector. It deliberately emits no global aggregate, so `collector_name` can be used as the Honeycomb breakdown and each collector retains its own `health_status`, `health_score`, warning count, critical count, and reasons.
+
+```bash
+./scripts/health-kpi.py \
+  --url=https://monitor.example.invalid \
+  --token-file=/etc/automation-gateway/tokens/zabbix
+```
+
+The token is read from a protected regular file and is never included in output. For offline checks or an existing data pipeline, pass an API response directly:
+
+```bash
+./scripts/health-kpi.py --input=/secure/path/gateway-metrics.json
+# or: curl ... | ./scripts/health-kpi.py --input=-
+```
+
+WAGO events include the readable diagnostic string such as `Coupler running, OK`, uptime in seconds, RTC state, error group/code, IEC task values, Modbus capacity, K-bus module count, and firmware. Phoenix events include NUT status, battery charge/runtime/temperature/voltage, output voltage/current, and model. A WAGO RUN-state check is intentionally disabled until the numeric RUN/STOP meaning has been confirmed on the device; afterwards it can be enabled for the script with `--wago-run-status=<value>`.
+
+The script only writes the events to stdout. Send that stdout through the site's existing OpenTelemetry Collector, Vector, Fluent Bit, or other approved Honeycomb ingestion path rather than placing a Honeycomb API key on the gateway.
+
 ## Update and rollback
 
 Update from a clean checkout with the same installer:

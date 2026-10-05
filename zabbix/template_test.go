@@ -24,9 +24,18 @@ type templateDocument struct {
 		} `yaml:"template_groups"`
 		Templates []struct {
 			Items []struct {
-				Type    string `yaml:"type"`
-				Key     string `yaml:"key"`
-				URL     string `yaml:"url"`
+				Name      string `yaml:"name"`
+				Type      string `yaml:"type"`
+				Key       string `yaml:"key"`
+				URL       string `yaml:"url"`
+				ValueType string `yaml:"value_type"`
+				Units     string `yaml:"units"`
+				ValueMap  struct {
+					Name string `yaml:"name"`
+				} `yaml:"valuemap"`
+				MasterItem struct {
+					Key string `yaml:"key"`
+				} `yaml:"master_item"`
 				Headers []struct {
 					Name  string `yaml:"name"`
 					Value string `yaml:"value"`
@@ -44,6 +53,8 @@ type templateDocument struct {
 				} `yaml:"master_item"`
 				ItemPrototypes []struct {
 					Key        string `yaml:"key"`
+					ValueType  string `yaml:"value_type"`
+					Trends     string `yaml:"trends"`
 					MasterItem struct {
 						Key string `yaml:"key"`
 					} `yaml:"master_item"`
@@ -65,6 +76,17 @@ type templateDocument struct {
 				Type  string `yaml:"type"`
 				Value string `yaml:"value"`
 			} `yaml:"macros"`
+			Dashboards []struct {
+				Name  string `yaml:"name"`
+				Pages []struct {
+					Widgets []struct {
+						Type string `yaml:"type"`
+					} `yaml:"widgets"`
+				} `yaml:"pages"`
+			} `yaml:"dashboards"`
+			ValueMaps []struct {
+				Name string `yaml:"name"`
+			} `yaml:"valuemaps"`
 		} `yaml:"templates"`
 	} `yaml:"zabbix_export"`
 }
@@ -86,8 +108,13 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		t.Fatalf("template groups=%+v", document.Export.TemplateGroups)
 	}
 	template := document.Export.Templates[0]
-	if len(template.Items) != 1 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
+	if len(template.Items) != 16 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
 		t.Fatalf("master items=%+v", template.Items)
+	}
+	for _, item := range template.Items[1:] {
+		if item.Type != "DEPENDENT" || item.URL != "" || item.MasterItem.Key != "automation.gateway.snapshot" {
+			t.Fatalf("device item is not dependent-only: %+v", item)
+		}
 	}
 	if len(template.Items[0].Headers) != 1 || template.Items[0].Headers[0].Name != "Authorization" || template.Items[0].Headers[0].Value != "Bearer {$AUTOMATION_GATEWAY_TOKEN}" {
 		t.Fatalf("headers=%+v", template.Items[0].Headers)
@@ -95,11 +122,11 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 	if len(template.Items[0].Preprocessing) != 1 || template.Items[0].Preprocessing[0].Type != "JAVASCRIPT" || len(template.Items[0].Preprocessing[0].Parameters) != 1 {
 		t.Fatalf("master preprocessing=%+v", template.Items[0].Preprocessing)
 	}
-	if len(template.DiscoveryRules) != 2 {
+	if len(template.DiscoveryRules) != 3 {
 		t.Fatalf("discovery rules=%d", len(template.DiscoveryRules))
 	}
-	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 3, "automation.gateway.metrics.discovery": 2}
-	triggerCounts := map[string]int{"automation.gateway.sources.discovery": 2, "automation.gateway.metrics.discovery": 0}
+	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 3, "automation.gateway.metrics.discovery": 2, "automation.gateway.numeric_metrics.discovery": 2}
+	triggerCounts := map[string]int{"automation.gateway.sources.discovery": 2, "automation.gateway.metrics.discovery": 0, "automation.gateway.numeric_metrics.discovery": 0}
 	for _, rule := range template.DiscoveryRules {
 		if rule.Type != "DEPENDENT" || rule.MasterItem.Key != "automation.gateway.snapshot" {
 			t.Fatalf("rule=%+v", rule)
@@ -113,6 +140,9 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 			}
 			if strings.HasPrefix(prototype.Key, "automation.gateway.metric") && !strings.Contains(prototype.Key, "{#METRIC_KEY}") {
 				t.Fatalf("metric prototype uses unsafe identity: %q", prototype.Key)
+			}
+			if strings.HasPrefix(prototype.Key, "automation.gateway.metric.numeric[") && (prototype.ValueType != "FLOAT" || prototype.Trends == "0") {
+				t.Fatalf("numeric metric prototype is not trendable: %+v", prototype)
 			}
 		}
 		if len(rule.Preprocessing) != 1 || rule.Preprocessing[0].Type != "JAVASCRIPT" || len(rule.Preprocessing[0].Parameters) != 1 {
@@ -162,7 +192,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 13 {
+	if len(seen) != 41 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -201,18 +231,23 @@ func TestDiscoveryJavaScriptTransformsSnapshot(t *testing.T) {
 				t.Fatalf("source discovery=%v", discovered)
 			}
 		case "automation.gateway.metrics.discovery":
-			if len(discovered) != 2 {
+			if len(discovered) != 1 {
 				t.Fatalf("metric discovery=%v", discovered)
 			}
 			byID := map[string]map[string]any{}
 			for _, metric := range discovered {
 				byID[metric["{#METRIC_ID}"].(string)] = metric
 			}
-			if byID["1.3.6.1.2.1.1.3.0"]["{#VALUE_JSONPATH}"] != `$["controller-main"].metrics[?(@.labels.oid == "1.3.6.1.2.1.1.3.0")].value.first()` || !regexp.MustCompile(`^[0-9a-f]+$`).MatchString(byID["1.3.6.1.2.1.1.3.0"]["{#METRIC_KEY}"].(string)) {
-				t.Fatalf("OID metric=%v", byID["1.3.6.1.2.1.1.3.0"])
-			}
 			if byID["display.name"]["{#VALUE_JSONPATH}"] != `$["controller-main"].metrics[?(@.name == "display.name")].value.first()` {
 				t.Fatalf("name metric=%v", byID["display.name"])
+			}
+		case "automation.gateway.numeric_metrics.discovery":
+			if len(discovered) != 1 {
+				t.Fatalf("numeric metric discovery=%v", discovered)
+			}
+			metric := discovered[0]
+			if metric["{#METRIC_ID}"] != "1.3.6.1.2.1.1.3.0" || metric["{#VALUE_JSONPATH}"] != `$["controller-main"].metrics[?(@.labels.oid == "1.3.6.1.2.1.1.3.0")].value.first()` || !regexp.MustCompile(`^[0-9a-f]+$`).MatchString(metric["{#METRIC_KEY}"].(string)) {
+				t.Fatalf("numeric OID metric=%v", metric)
 			}
 		default:
 			t.Fatalf("unexpected discovery key %q", rule.Key)
@@ -293,5 +328,103 @@ func TestLastSuccessJavaScriptHandlesNeverSuccessfulSources(t *testing.T) {
 	}
 	if output, err := exec.Command(node, "-e", script, "invalid").CombinedOutput(); err == nil {
 		t.Fatalf("invalid timestamp accepted with output %q", output)
+	}
+}
+
+// TestDeviceDashboardsExposeStableHumanReadableKPIs verifies both device views use stable core items while LLD retains detail metrics.
+func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	template := document.Export.Templates[0]
+	dashboards := map[string]int{}
+	for _, dashboard := range template.Dashboards {
+		widgets := 0
+		for _, page := range dashboard.Pages {
+			widgets += len(page.Widgets)
+		}
+		dashboards[dashboard.Name] = widgets
+	}
+	if dashboards["WAGO 750-880"] < 8 || dashboards["Phoenix Contact UPS"] < 7 {
+		t.Fatalf("dashboards=%v", dashboards)
+	}
+	items := map[string]struct{ valueType, units, valueMap string }{}
+	for _, item := range template.Items {
+		items[item.Key] = struct{ valueType, units, valueMap string }{item.ValueType, item.Units, item.ValueMap.Name}
+	}
+	if item := items["automation.gateway.wago.uptime"]; item.valueType != "FLOAT" || item.units != "uptime" {
+		t.Fatalf("WAGO uptime=%+v", item)
+	}
+	if item := items["automation.gateway.wago.rtc_battery"]; item.valueMap != "WAGO RTC battery status" {
+		t.Fatalf("RTC item=%+v", item)
+	}
+	if item := items["automation.gateway.phoenix.status"]; item.valueMap != "NUT UPS status" {
+		t.Fatalf("UPS status item=%+v", item)
+	}
+	valueMaps := map[string]bool{}
+	for _, valueMap := range template.ValueMaps {
+		valueMaps[valueMap.Name] = true
+	}
+	if !valueMaps["WAGO RTC battery status"] || !valueMaps["NUT UPS status"] {
+		t.Fatalf("value maps=%v", valueMaps)
+	}
+}
+
+// TestDeviceHealthJavaScriptScoresCollectorsIndependently executes both static health transforms.
+func TestDeviceHealthJavaScriptScoresCollectorsIndependently(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		key, source string
+		want        string
+	}{
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.1.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}},{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}},{"value":0,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.11.5.0"}}]}`, "1"},
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":7,"labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.2.0"}}]}`, "3"},
+		{"automation.gateway.wago.health", `{"available":true,"stale":false,"metrics":[{"value":"Coupler running, OK","labels":{"oid":"1.3.6.1.4.1.13576.10.1.20.4.0"}}]}`, "2"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"},{"name":"battery.charge","value":100},{"name":"battery.temperature","value":28}]}`, "1"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OB LB"},{"name":"battery.charge","value":10}]}`, "3"},
+		{"automation.gateway.phoenix.health", `{"available":true,"stale":false,"metrics":[{"name":"ups.status","value":"OL"}]}`, "2"},
+	}
+	for _, test := range tests {
+		var scriptBody string
+		for _, item := range document.Export.Templates[0].Items {
+			if item.Key != test.key {
+				continue
+			}
+			for _, preprocessing := range item.Preprocessing {
+				if preprocessing.Type == "JAVASCRIPT" {
+					scriptBody = preprocessing.Parameters[0]
+				}
+			}
+		}
+		if scriptBody == "" {
+			t.Fatalf("JavaScript not found for %q", test.key)
+		}
+		scriptBody = strings.NewReplacer(
+			"{$PHOENIX_BATTERY_CRITICAL}", "20",
+			"{$PHOENIX_BATTERY_WARNING}", "50",
+			"{$PHOENIX_TEMPERATURE_CRITICAL}", "55",
+			"{$PHOENIX_TEMPERATURE_WARNING}", "45",
+		).Replace(scriptBody)
+		script := "const value = process.argv[1]; function transform() {\n" + scriptBody + "\n} process.stdout.write(String(transform()));"
+		output, err := exec.Command(node, "-e", script, test.source).CombinedOutput()
+		if err != nil || string(output) != test.want {
+			t.Fatalf("key=%q want=%q error=%v output=%q", test.key, test.want, err, output)
+		}
 	}
 }

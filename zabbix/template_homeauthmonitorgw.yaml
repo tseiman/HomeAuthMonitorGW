@@ -68,6 +68,334 @@ zabbix_export:
               name: 'Automation gateway has no snapshot data for 5 minutes'
               priority: HIGH
               description: 'The authenticated HTTPS master item has produced no value for five minutes. Check TLS, allowlist, token, and gateway availability.'
+        - uuid: 1fa248c88e9c48c38ed250719763a212
+          name: 'WAGO: Collector health'
+          type: DEPENDENT
+          key: automation.gateway.wago.health
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Independent WAGO collector health: 1 healthy, 2 warning, 3 critical. Combines reachability, staleness, WAGO error group/code, and RTC battery state.'
+          valuemap:
+            name: 'Collector health'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"]'
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var source = JSON.parse(value);
+                  if (!source.available) return 3;
+                  var health = source.stale ? 2 : 1;
+                  var values = {};
+                  source.metrics.forEach(function (metric) {
+                      if (metric.labels && typeof metric.labels.oid === 'string') values[metric.labels.oid] = metric.value;
+                  });
+                  var required = ['1.3.6.1.4.1.13576.10.1.20.1.0', '1.3.6.1.4.1.13576.10.1.20.2.0', '1.3.6.1.4.1.13576.10.1.20.4.0', '1.3.6.1.4.1.13576.10.1.11.5.0'];
+                  required.forEach(function (oid) { if (!Object.prototype.hasOwnProperty.call(values, oid)) health = 2; });
+                  if ((Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.1.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.1.0']) !== 0) || (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.20.2.0') && Number(values['1.3.6.1.4.1.13576.10.1.20.2.0']) !== 0)) return 3;
+                  if (Object.prototype.hasOwnProperty.call(values, '1.3.6.1.4.1.13576.10.1.11.5.0') && Number(values['1.3.6.1.4.1.13576.10.1.11.5.0']) !== 0) health = 2;
+                  return health;
+          tags:
+            - tag: component
+              value: health
+            - tag: device
+              value: wago
+          triggers:
+            - uuid: c7bf160795a84d2dbb13601d5154f496
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=3'
+              name: 'WAGO collector health is critical'
+              priority: HIGH
+            - uuid: 472d5a45cf244473aabd2ece2a4bea98
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=2'
+              name: 'WAGO collector health has a warning'
+              priority: WARNING
+        - uuid: 9e0913d22e404082a7c20fdc461ab4f1
+          name: 'WAGO: System uptime'
+          type: DEPENDENT
+          key: automation.gateway.wago.uptime
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          units: uptime
+          description: 'Controller uptime converted from SNMP TimeTicks (centiseconds) to seconds for human-readable Zabbix display.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.2.1.1.3.0")].value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '0.01'
+          tags:
+            - tag: device
+              value: wago
+          triggers:
+            - uuid: f18de41ba3e14f3ab6d5167f719860b0
+              expression: 'change(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.uptime)<0'
+              name: 'WAGO controller has restarted'
+              priority: WARNING
+        - uuid: 34541c5c0c8e4a9b800f7cb5bf4d7346
+          name: 'WAGO: Diagnostic status'
+          type: DEPENDENT
+          key: automation.gateway.wago.diagnostic
+          history: '30d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Human-readable WAGO diagnostic, for example Coupler running, OK.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.20.4.0")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: 647862f2e1d54b0788b2dd4c7c056b2e
+          name: 'WAGO: Diagnostic error code'
+          type: DEPENDENT
+          key: automation.gateway.wago.error_code
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Current WAGO diagnostic error code; zero means no reported error.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.20.2.0")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: 828b4c9211764f7586edc1731b83e1cb
+          name: 'WAGO: RTC battery status'
+          type: DEPENDENT
+          key: automation.gateway.wago.rtc_battery
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'RTC backup-battery state reported by the WAGO controller.'
+          valuemap:
+            name: 'WAGO RTC battery status'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.11.5.0")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: 4cad44fe65464b9ba4f9c4f6c0d082cd
+          name: 'WAGO: IEC task status'
+          type: DEPENDENT
+          key: automation.gateway.wago.iec_task_status
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Raw IEC task status. No RUN/STOP trigger is enabled until the vendor-specific numeric meanings are observed and confirmed.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.30.9.1.3.1")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: a89ec50e50804a8b9657c965dd66215f
+          name: 'WAGO: IEC task cycle time'
+          type: DEPENDENT
+          key: automation.gateway.wago.iec_cycle_time
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          description: 'Current IEC task cycle-time value. The vendor MIB does not state a reliable unit.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.30.9.1.9.1")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: ff0ced275437462baf773cb45de4ae5a
+          name: 'WAGO: Firmware version'
+          type: DEPENDENT
+          key: automation.gateway.wago.firmware
+          history: '30d'
+          trends: '0'
+          value_type: TEXT
+          description: 'Installed WAGO controller firmware version.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].metrics[?(@.labels.oid == "1.3.6.1.4.1.13576.10.1.10.4.0")].value.first()'
+          tags:
+            - tag: device
+              value: wago
+        - uuid: 792611d123d24d84a925f7ff285023be
+          name: 'Phoenix UPS: Collector health'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.health
+          history: '30d'
+          trends: '365d'
+          value_type: UNSIGNED
+          description: 'Independent Phoenix/NUT collector health derived from availability, staleness, UPS status, charge, and battery temperature.'
+          valuemap:
+            name: 'Collector health'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"]'
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var source = JSON.parse(value);
+                  if (!source.available) return 3;
+                  var health = source.stale ? 2 : 1;
+                  var values = {};
+                  source.metrics.forEach(function (metric) { values[metric.name] = metric.value; });
+                  var status = String(values['ups.status'] || '');
+                  var tokens = status.split(/\s+/);
+                  if (!Object.prototype.hasOwnProperty.call(values, 'ups.status') || !Object.prototype.hasOwnProperty.call(values, 'battery.charge') || !Object.prototype.hasOwnProperty.call(values, 'battery.temperature')) health = 2;
+                  if (tokens.indexOf('LB') >= 0 || tokens.indexOf('FSD') >= 0 || tokens.indexOf('OFF') >= 0) return 3;
+                  if (status && tokens.indexOf('OL') < 0) health = 2;
+                  var charge = Number(values['battery.charge']);
+                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_CRITICAL}')) return 3;
+                  if (!isNaN(charge) && charge < Number('{$PHOENIX_BATTERY_WARNING}')) health = 2;
+                  var temperature = Number(values['battery.temperature']);
+                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_CRITICAL}')) return 3;
+                  if (!isNaN(temperature) && temperature >= Number('{$PHOENIX_TEMPERATURE_WARNING}')) health = 2;
+                  return health;
+          tags:
+            - tag: component
+              value: health
+            - tag: device
+              value: phoenix-ups
+          triggers:
+            - uuid: 3677dc87a6fa403e997d3cf567db8e83
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=3'
+              name: 'Phoenix UPS collector health is critical'
+              priority: HIGH
+            - uuid: ada7f4f7a7824ff59399d15faffa12f9
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.phoenix.health)=2'
+              name: 'Phoenix UPS collector health has a warning'
+              priority: WARNING
+        - uuid: ef36034ac500442ca4fa3a5c148296bc
+          name: 'Phoenix UPS: Status'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.status
+          history: '30d'
+          trends: '0'
+          value_type: TEXT
+          description: 'NUT status flags rendered with a value map for common Phoenix UPS states.'
+          valuemap:
+            name: 'NUT UPS status'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "ups.status")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
+        - uuid: 70cb2ce9cef84e46b15e1d04ac32fe4f
+          name: 'Phoenix UPS: Model'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.model
+          history: '30d'
+          trends: '0'
+          value_type: TEXT
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "device.model")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
+        - uuid: ea0282a319b24bfbb464b15e07b7bc97
+          name: 'Phoenix UPS: Battery charge'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.battery_charge
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          units: '%'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "battery.charge")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
+        - uuid: ff605da8d7b94efb867a8e8922c4a3bf
+          name: 'Phoenix UPS: Battery runtime'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.battery_runtime
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          units: uptime
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "battery.runtime")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
+        - uuid: bad55974417f4c2a99846bd99db6f5d8
+          name: 'Phoenix UPS: Battery temperature'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.battery_temperature
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          units: °C
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "battery.temperature")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
+        - uuid: 3cdaa5196ff042dc8ddfe19490ae2b9c
+          name: 'Phoenix UPS: Output voltage'
+          type: DEPENDENT
+          key: automation.gateway.phoenix.output_voltage
+          history: '30d'
+          trends: '365d'
+          value_type: FLOAT
+          units: V
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$PHOENIX_SOURCE}"].metrics[?(@.name == "output.voltage")].value.first()'
+          tags:
+            - tag: device
+              value: phoenix-ups
       discovery_rules:
         - uuid: e882655e51c6526bbf649b0546193cbe
           name: 'Discover gateway sources'
@@ -214,7 +542,7 @@ zabbix_export:
               history: '7d'
               trends: '0'
               value_type: TEXT
-              description: 'Current cached value for discovered metric {#METRIC}. Consult gateway metadata for its full description.'
+              description: '{#DESCRIPTION}'
               master_item:
                 key: automation.gateway.snapshot
               preprocessing:
@@ -279,6 +607,9 @@ zabbix_export:
                           if (!metric || typeof metric.name !== 'string') {
                               return;
                           }
+                          if (metric.value_type !== 'string' && metric.value_type !== 'hex') {
+                              return;
+                          }
                           var metricID = metric.name;
                           var selector = '@.name == ' + JSON.stringify(metric.name);
                           if (metric.labels && typeof metric.labels.oid === 'string') {
@@ -298,6 +629,131 @@ zabbix_export:
                               '{#METRIC_KEY}': metricKey,
                               '{#VALUE_TYPE}': typeof metric.value_type === 'string' ? metric.value_type : 'unknown',
                               '{#UNIT}': typeof metric.unit === 'string' ? metric.unit : '',
+                              '{#DESCRIPTION}': typeof metric.description === 'string' ? metric.description : 'Current cached text value for ' + metric.name + '.',
+                              '{#VALUE_JSONPATH}': base + '.value.first()',
+                              '{#TIMESTAMP_JSONPATH}': base + '.timestamp.first()'
+                          });
+                      });
+                  });
+                  discovered.sort(function (left, right) {
+                      var leftKey = left['{#SOURCE}'] + '\u0000' + left['{#METRIC}'];
+                      var rightKey = right['{#SOURCE}'] + '\u0000' + right['{#METRIC}'];
+                      return leftKey < rightKey ? -1 : (leftKey > rightKey ? 1 : 0);
+                  });
+                  return JSON.stringify(discovered);
+        - uuid: e53e925bcdb3435ba5fc567f19ba55b3
+          name: 'Discover numeric gateway metrics'
+          type: DEPENDENT
+          key: automation.gateway.numeric_metrics.discovery
+          delay: '0'
+          lifetime: '7d'
+          description: 'Discovers numeric values separately so Zabbix can retain trends and apply numeric triggers.'
+          item_prototypes:
+            - uuid: 0ace423d3a7b4ce6881b42a2528dadf5
+              name: 'Source {#SOURCE}: metric {#METRIC}'
+              type: DEPENDENT
+              key: 'automation.gateway.metric.numeric["{#SOURCE}","{#METRIC_KEY}"]'
+              history: '30d'
+              trends: '365d'
+              value_type: FLOAT
+              units: '{#DISPLAY_UNIT}'
+              description: '{#DESCRIPTION}'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#VALUE_JSONPATH}'
+                - type: MULTIPLIER
+                  parameters:
+                    - '{#MULTIPLIER}'
+              tags:
+                - tag: component
+                  value: metric
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+                - tag: value-type
+                  value: '{#VALUE_TYPE}'
+                - tag: unit
+                  value: '{#DISPLAY_UNIT}'
+            - uuid: 7688bc15166d44db9e4e362a73ce6928
+              name: 'Source {#SOURCE}: metric {#METRIC} timestamp'
+              type: DEPENDENT
+              key: 'automation.gateway.metric.numeric.timestamp["{#SOURCE}","{#METRIC_KEY}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              units: unixtime
+              description: 'UTC Unix time attached to the cached numeric metric value.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#TIMESTAMP_JSONPATH}'
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var timestamp = Date.parse(value);
+                      if (isNaN(timestamp) || timestamp < 0) {
+                          throw 'invalid metric timestamp';
+                      }
+                      return Math.floor(timestamp / 1000);
+              tags:
+                - tag: component
+                  value: metric
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var snapshot = JSON.parse(value);
+                  var discovered = [];
+                  Object.keys(snapshot).sort().forEach(function (sourceName) {
+                      var source = snapshot[sourceName];
+                      if (!source || !Array.isArray(source.metrics)) {
+                          return;
+                      }
+                      source.metrics.forEach(function (metric) {
+                          if (!metric || typeof metric.name !== 'string') {
+                              return;
+                          }
+                          if (metric.value_type !== 'integer' && metric.value_type !== 'counter' && metric.value_type !== 'number') {
+                              return;
+                          }
+                          var metricID = metric.name;
+                          var selector = '@.name == ' + JSON.stringify(metric.name);
+                          if (metric.labels && typeof metric.labels.oid === 'string') {
+                              metricID = metric.labels.oid;
+                              selector = '@.labels.oid == ' + JSON.stringify(metric.labels.oid);
+                          }
+                          var metricKey = '';
+                          for (var index = 0; index < metricID.length; index++) {
+                              metricKey += ('0000' + metricID.charCodeAt(index).toString(16)).slice(-4);
+                          }
+                          var base = '$[' + JSON.stringify(sourceName) + '].metrics[?(' + selector + ')]';
+                          var multiplier = metric.unit === 'centiseconds' ? '0.01' : '1';
+                          var displayUnit = typeof metric.unit === 'string' ? metric.unit : '';
+                          if (metric.unit === 'centiseconds') {
+                              displayUnit = metric.name === 'sysUpTime' ? 'uptime' : 's';
+                          }
+                          discovered.push({
+                              '{#SOURCE}': sourceName,
+                              '{#DRIVER}': typeof source.driver === 'string' ? source.driver : 'unknown',
+                              '{#METRIC}': metric.name,
+                              '{#METRIC_ID}': metricID,
+                              '{#METRIC_KEY}': metricKey,
+                              '{#VALUE_TYPE}': metric.value_type,
+                              '{#DISPLAY_UNIT}': displayUnit,
+                              '{#MULTIPLIER}': multiplier,
+                              '{#DESCRIPTION}': typeof metric.description === 'string' ? metric.description : 'Current cached numeric value for ' + metric.name + '.',
                               '{#VALUE_JSONPATH}': base + '.value.first()',
                               '{#TIMESTAMP_JSONPATH}': base + '.timestamp.first()'
                           });
@@ -322,8 +778,226 @@ zabbix_export:
         - macro: '{$AUTOMATION_GATEWAY_TIMEOUT}'
           value: '10s'
           description: 'HTTPS timeout, shorter than the master item interval.'
+        - macro: '{$WAGO_SOURCE}'
+          value: 'wago-750-880-snmp3'
+          description: 'Gateway source name used by the WAGO core items and dashboard.'
+        - macro: '{$PHOENIX_SOURCE}'
+          value: 'ups-main'
+          description: 'Gateway source name used by the Phoenix Contact UPS core items and dashboard.'
+        - macro: '{$PHOENIX_BATTERY_WARNING}'
+          value: '50'
+          description: 'Battery charge percentage below which Phoenix health becomes warning.'
+        - macro: '{$PHOENIX_BATTERY_CRITICAL}'
+          value: '20'
+          description: 'Battery charge percentage below which Phoenix health becomes critical.'
+        - macro: '{$PHOENIX_TEMPERATURE_WARNING}'
+          value: '45'
+          description: 'Battery temperature in degrees Celsius at which Phoenix health becomes warning.'
+        - macro: '{$PHOENIX_TEMPERATURE_CRITICAL}'
+          value: '55'
+          description: 'Battery temperature in degrees Celsius at which Phoenix health becomes critical.'
       tags:
         - tag: class
           value: software
         - tag: target
           value: homeauthmonitorgw
+      dashboards:
+        - uuid: aeed269cd3f349d6989a4ba1e84d6a99
+          name: 'WAGO 750-880'
+          pages:
+            - name: Overview
+              widgets:
+                - type: item
+                  name: Health
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.health}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                    - {type: INTEGER, name: show.1, value: '1'}
+                - type: item
+                  name: Uptime
+                  x: '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.uptime}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'RTC battery'
+                  x: '24'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.rtc_battery}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: Firmware
+                  x: '36'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.firmware}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: Diagnostic
+                  'y': '3'
+                  width: '24'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.diagnostic}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'Error code'
+                  x: '24'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.error_code}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'IEC task status'
+                  x: '36'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_task_status}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: graph
+                  name: 'IEC task cycle time'
+                  'y': '6'
+                  width: '48'
+                  height: '5'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.wago.iec_cycle_time}
+                    - {type: STRING, name: reference, value: WAGOC}
+                    - {type: INTEGER, name: source_type, value: '1'}
+        - uuid: 19e2d6468bf247559654c20985335243
+          name: 'Phoenix Contact UPS'
+          pages:
+            - name: Overview
+              widgets:
+                - type: item
+                  name: Health
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.health}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                    - {type: INTEGER, name: show.1, value: '1'}
+                - type: item
+                  name: 'UPS status'
+                  x: '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.status}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: Model
+                  x: '24'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.model}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'Battery runtime'
+                  x: '36'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_runtime}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'Battery charge'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_charge}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'Battery temperature'
+                  x: '12'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_temperature}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: item
+                  name: 'Output voltage'
+                  x: '24'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.output_voltage}
+                    - {type: INTEGER, name: show.0, value: '2'}
+                - type: graph
+                  name: 'Battery history'
+                  'y': '6'
+                  width: '48'
+                  height: '5'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value: {host: 'Template HomeAuthMonitorGW by HTTP', key: automation.gateway.phoenix.battery_charge}
+                    - {type: STRING, name: reference, value: PHOEN}
+                    - {type: INTEGER, name: source_type, value: '1'}
+      valuemaps:
+        - uuid: 1e5c61784bae4102993378537c0773a5
+          name: 'Collector health'
+          mappings:
+            - {value: '0', newvalue: Unknown}
+            - {value: '1', newvalue: Healthy}
+            - {value: '2', newvalue: Warning}
+            - {value: '3', newvalue: Critical}
+        - uuid: bf39a68ab79a40278efe448709b9ca43
+          name: 'WAGO RTC battery status'
+          mappings:
+            - {value: '0', newvalue: OK}
+            - {value: '1', newvalue: 'Battery empty'}
+        - uuid: 456637b4595e43ad84ede060ce715425
+          name: 'NUT UPS status'
+          mappings:
+            - {value: OL, newvalue: 'Online'}
+            - {value: OB, newvalue: 'On battery'}
+            - {value: 'OB LB', newvalue: 'On battery, low battery'}
+            - {value: 'OL CHRG', newvalue: 'Online, charging'}
+            - {value: 'OL DISCHRG', newvalue: 'Online, discharging'}
+            - {value: BYPASS, newvalue: 'Bypass'}
+            - {value: OFF, newvalue: 'Off'}
