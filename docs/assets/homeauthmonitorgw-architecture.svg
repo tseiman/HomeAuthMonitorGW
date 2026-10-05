@@ -12,13 +12,13 @@
       <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" seed="12" result="noise"/>
       <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.4"/>
     </filter>
-    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#1672a8"/></marker>
-    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#27864b"/></marker>
-    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#d97416"/></marker>
+    <marker id="arrowBlue" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1672a8"/></marker>
+    <marker id="arrowGreen" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#27864b"/></marker>
+    <marker id="arrowOrange" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#d97416"/></marker>
     <style>
       .ink{stroke:#17242e;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;filter:url(#rough)}
       .thin{stroke-width:2.5}.box{fill:#fff;}.blue{fill:#dff3ff}.green{fill:#e0f6e6}.orange{fill:#fff0d9}.yellow{fill:#fff8c9}.pink{fill:#ffe6e1}.purple{fill:#eee6ff}.teal{fill:#dff8f5}
-      text{font-family:"Comic Sans MS","Segoe Print","Bradley Hand",sans-serif;fill:#17242e}
+      text{font-family:"DejaVu Sans",sans-serif;fill:#17242e}
       .title{font-size:54px;font-weight:700}.subtitle{font-size:24px;font-weight:700}.h1{font-size:30px;font-weight:700}.h2{font-size:23px;font-weight:700}.body{font-size:19px}.small{font-size:16px}.tiny{font-size:14px}.note{font-size:18px;font-style:italic;fill:#335266}
       .blueLine{fill:none;stroke:#1672a8;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrowBlue)}
       .greenLine{fill:none;stroke:#27864b;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrowGreen)}
@@ -32,7 +32,7 @@
   <text class="title center" x="900" y="68">HomeAuthMonitorGW Architecture</text>
   <path d="M345 82 Q900 99 1454 80" fill="none" stroke="#51a9d6" stroke-width="9" stroke-linecap="round" opacity=".75"/>
   <rect class="ink yellow" x="445" y="100" width="910" height="55" rx="25"/>
-  <text class="subtitle center" x="900" y="137">Read-only collection • independent sources • cached HTTPS snapshots</text>
+  <text class="subtitle center" x="900" y="137" textLength="820" lengthAdjust="spacingAndGlyphs">Read-only collection • independent sources • cached HTTPS snapshots</text>
   <text class="note" x="55" y="75" transform="rotate(-7 55 75)">No device control path!</text>
   <path d="M85 88 q15 18 30 0 q-1 23 -15 32 q-14-9-15-32" fill="none" stroke="#d14a5a" stroke-width="3"/>
 
@@ -97,10 +97,10 @@
     <ellipse class="ink teal" cx="790" cy="606" rx="229" ry="42"/>
     <path class="ink teal" d="M561 606 v106 c0 24 103 43 229 43 s229-19 229-43V606"/>
     <ellipse class="ink teal" cx="790" cy="712" rx="229" ry="43"/>
-    <text class="h1 center" x="790" y="616">In-memory snapshot cache</text>
-    <text class="body center" x="790" y="656">last known good metrics • timestamps • discovery</text>
-    <text class="body center" x="790" y="687">one isolated state per configured source</text>
-    <text class="small center muted" x="790" y="727">HTTP reads cache only — never starts a device poll</text>
+    <text class="h1 center" x="790" y="616" textLength="370" lengthAdjust="spacingAndGlyphs">In-memory snapshot cache</text>
+    <text class="body center" x="790" y="656" textLength="390" lengthAdjust="spacingAndGlyphs">last known good metrics • timestamps • discovery</text>
+    <text class="body center" x="790" y="687" textLength="345" lengthAdjust="spacingAndGlyphs">one isolated state per configured source</text>
+    <text class="small center muted" x="790" y="727" textLength="385" lengthAdjust="spacingAndGlyphs">HTTP reads cache only — never starts a device poll</text>
   </g>
   <path class="greenLine" d="M790 512 L790 558"/>
 
