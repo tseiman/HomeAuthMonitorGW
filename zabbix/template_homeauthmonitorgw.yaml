@@ -1234,13 +1234,13 @@ zabbix_export:
           value: homeauthmonitorgw
       dashboards:
         - uuid: 19e2d6468bf247559654c20985335243
-          name: 'Phoenix Contact UPS'
+          name: 'Phoenix Contact QUINT UPS'
           pages:
             - name: Overview
               widgets:
                 - type: item
                   name: Health
-                  width: '18'
+                  width: '15'
                   fields:
                     - type: INTEGER
                       name: decimal_places
@@ -1305,8 +1305,8 @@ zabbix_export:
                       value: '2'
                 - type: item
                   name: 'UPS status'
-                  x: '18'
-                  width: '12'
+                  x: '15'
+                  width: '18'
                   fields:
                     - type: INTEGER
                       name: decimal_places
@@ -1338,8 +1338,8 @@ zabbix_export:
                       value: '2'
                 - type: item
                   name: Model
-                  x: '30'
-                  width: '18'
+                  x: '33'
+                  width: '15'
                   fields:
                     - type: INTEGER
                       name: decimal_places
@@ -1374,41 +1374,10 @@ zabbix_export:
           pages:
             - name: Overview
               widgets:
-                - type: item
-                  name: Health
-                  width: '11'
-                  fields:
-                    - type: INTEGER
-                      name: decimal_places
-                      value: '0'
-                    - type: ITEM
-                      name: itemid.0
-                      value:
-                        host: 'Template HomeAuthMonitorGW by HTTP'
-                        key: automation.gateway.wago.health
-                    - type: INTEGER
-                      name: show.0
-                      value: '2'
-                - type: item
-                  name: Diagnostic
-                  'y': '2'
-                  width: '24'
-                  fields:
-                    - type: INTEGER
-                      name: decimal_places
-                      value: '0'
-                    - type: ITEM
-                      name: itemid.0
-                      value:
-                        host: 'Template HomeAuthMonitorGW by HTTP'
-                        key: automation.gateway.wago.diagnostic
-                    - type: INTEGER
-                      name: show.0
-                      value: '2'
                 - type: svggraph
-                  'y': '4'
-                  width: '48'
-                  height: '5'
+                  name: 'IEC task cycle in µs'
+                  width: '40'
+                  height: '4'
                   fields:
                     - type: INTEGER
                       name: ds.0.color_palette
@@ -1424,9 +1393,9 @@ zabbix_export:
                       value: '0'
                 - type: itemhistory
                   name: 'CODESYS software'
-                  'y': '9'
-                  width: '24'
-                  height: '8'
+                  'y': '4'
+                  width: '15'
+                  height: '4'
                   fields:
                     - type: ITEM
                       name: columns.0.itemid
@@ -1448,10 +1417,54 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '1'
+                - type: wago_kbus
+                  name: 'K-bus modules'
+                  x: '15'
+                  'y': '4'
+                  width: '25'
+                  height: '4'
+                  fields:
+                    - type: STRING
+                      name: reference
+                      value: WAGOM
+                - type: item
+                  name: Diagnostic
+                  x: '40'
+                  width: '21'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.diagnostic
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: Health
+                  x: '40'
+                  'y': '2'
+                  width: '11'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Template HomeAuthMonitorGW by HTTP'
+                        key: automation.gateway.wago.health
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
                 - type: item
                   name: Uptime
-                  x: '11'
-                  width: '15'
+                  x: '40'
+                  'y': '4'
+                  width: '11'
                   fields:
                     - type: ITEM
                       name: itemid.0
@@ -1462,35 +1475,23 @@ zabbix_export:
                       name: show.0
                       value: '2'
                 - type: item
-                  name: 'Error code'
-                  x: '24'
-                  'y': '2'
-                  width: '12'
+                  name: Firmware
+                  x: '40'
+                  'y': '6'
+                  width: '11'
                   fields:
-                    - type: INTEGER
-                      name: decimal_places
-                      value: '0'
                     - type: ITEM
                       name: itemid.0
                       value:
                         host: 'Template HomeAuthMonitorGW by HTTP'
-                        key: automation.gateway.wago.error_code
+                        key: automation.gateway.wago.firmware
                     - type: INTEGER
                       name: show.0
                       value: '2'
-                - type: wago_kbus
-                  name: 'K-bus modules'
-                  x: '24'
-                  'y': '9'
-                  width: '24'
-                  height: '8'
-                  fields:
-                    - type: STRING
-                      name: reference
-                      value: WAGOM
                 - type: item
                   name: 'RTC battery'
-                  x: '26'
+                  x: '51'
+                  'y': '2'
                   width: '10'
                   fields:
                     - type: INTEGER
@@ -1505,23 +1506,27 @@ zabbix_export:
                       name: show.0
                       value: '2'
                 - type: item
-                  name: Firmware
-                  x: '36'
-                  width: '12'
+                  name: 'Error code'
+                  x: '51'
+                  'y': '4'
+                  width: '10'
                   fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
                     - type: ITEM
                       name: itemid.0
                       value:
                         host: 'Template HomeAuthMonitorGW by HTTP'
-                        key: automation.gateway.wago.firmware
+                        key: automation.gateway.wago.error_code
                     - type: INTEGER
                       name: show.0
                       value: '2'
                 - type: item
                   name: 'IEC task status'
-                  x: '36'
-                  'y': '2'
-                  width: '12'
+                  x: '51'
+                  'y': '6'
+                  width: '10'
                   fields:
                     - type: INTEGER
                       name: decimal_places

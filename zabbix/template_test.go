@@ -375,7 +375,7 @@ func TestDeviceDashboardsExposeStableHumanReadableKPIs(t *testing.T) {
 		}
 		dashboards[dashboard.Name] = widgets
 	}
-	if dashboards["WAGO 750-880"] < 8 || dashboards["Phoenix Contact UPS"] < 7 {
+	if dashboards["WAGO 750-880"] < 8 || dashboards["Phoenix Contact QUINT UPS"] < 7 {
 		t.Fatalf("dashboards=%v", dashboards)
 	}
 	items := map[string]struct{ valueType, units, valueMap string }{}
@@ -415,18 +415,19 @@ func TestDashboardLayoutMatchesUserExport(t *testing.T) {
 	}
 	type geometry struct{ x, y, width, height, widgetType string }
 	expected := map[string]map[string]geometry{
-		"Phoenix Contact UPS": {
-			"Health": {"0", "0", "18", "", "item"}, "Battery charge": {"0", "2", "12", "", "item"},
-			"Battery temperature": {"12", "2", "12", "", "item"}, "UPS status": {"18", "0", "12", "", "item"},
-			"Output voltage": {"24", "2", "12", "", "item"}, "Model": {"30", "0", "18", "", "item"},
+		"Phoenix Contact QUINT UPS": {
+			"Health": {"0", "0", "15", "", "item"}, "Battery charge": {"0", "2", "12", "", "item"},
+			"Battery temperature": {"12", "2", "12", "", "item"}, "UPS status": {"15", "0", "18", "", "item"},
+			"Output voltage": {"24", "2", "12", "", "item"}, "Model": {"33", "0", "15", "", "item"},
 			"Battery runtime": {"36", "2", "12", "", "item"}, "<graph>": {"0", "4", "48", "5", "svggraph"},
 		},
 		"WAGO 750-880": {
-			"Health": {"0", "0", "11", "", "item"}, "Uptime": {"11", "0", "15", "", "item"},
-			"RTC battery": {"26", "0", "10", "", "item"}, "Firmware": {"36", "0", "12", "", "item"},
-			"Diagnostic": {"0", "2", "24", "", "item"}, "Error code": {"24", "2", "12", "", "item"},
-			"IEC task status": {"36", "2", "12", "", "item"}, "<graph>": {"0", "4", "48", "5", "svggraph"},
-			"CODESYS software": {"0", "9", "24", "8", "itemhistory"}, "K-bus modules": {"24", "9", "24", "8", "wago_kbus"},
+			"IEC task cycle in µs": {"0", "0", "40", "4", "svggraph"},
+			"CODESYS software": {"0", "4", "15", "4", "itemhistory"}, "K-bus modules": {"15", "4", "25", "4", "wago_kbus"},
+			"Diagnostic": {"40", "0", "21", "", "item"}, "Health": {"40", "2", "11", "", "item"},
+			"Uptime": {"40", "4", "11", "", "item"}, "Firmware": {"40", "6", "11", "", "item"},
+			"RTC battery": {"51", "2", "10", "", "item"}, "Error code": {"51", "4", "10", "", "item"},
+			"IEC task status": {"51", "6", "10", "", "item"},
 		},
 	}
 	for _, dashboard := range document.Export.Templates[0].Dashboards {
