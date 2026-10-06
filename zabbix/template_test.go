@@ -569,6 +569,7 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		"automation.gateway.wago.module_count",
 		"automation.gateway.wago.module_inventory",
 		"automation.gateway.wago.module_inventory.signature",
+		"automation.gateway.wago.kbus_layout",
 	}
 	for _, key := range required {
 		if _, found := items[key]; !found {
@@ -669,9 +670,15 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		t.Fatalf("K-bus modules widget type=%q, want wago_kbus", widgetTypes["K-bus modules"])
 	}
 	kbusSettings := widgetSettings["K-bus modules"]
-	hostRef, ok := kbusSettings["hostid.0"].(map[string]any)
-	if !ok || hostRef["host"] != "Template HomeAuthMonitorGW by HTTP" {
-		t.Fatalf("K-bus modules wago_kbus hostid field=%v", kbusSettings["hostid.0"])
+	// hostid.0 must be absent — users select the host manually after template import.
+	// Its presence would fix the widget to the template-internal host name, breaking
+	// deployments where the host was created with a different name.
+	if _, hasHostId := kbusSettings["hostid.0"]; hasHostId {
+		t.Error("K-bus modules wago_kbus widget must not contain hostid.0 (would pin host to template name)")
+	}
+	// STRING reference WAGOM must be present for dashboard widget field linkage.
+	if kbusSettings["reference"] != "WAGOM" {
+		t.Errorf("K-bus modules wago_kbus reference=%v, want WAGOM", kbusSettings["reference"])
 	}
 	// itemhistory-specific settings apply only to CODESYS software.
 	settings := widgetSettings["CODESYS software"]

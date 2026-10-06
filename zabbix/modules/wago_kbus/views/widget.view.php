@@ -4,138 +4,131 @@ $e = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE,
 
 // Persistent site-local custom SVG data.
 // /var/lib is the FHS location for variable state owned by applications — mutable, persistent,
-// and outside the package-managed module tree at /usr/share/zabbix/modules/.  Storing custom
+// and outside the package-managed module tree at /usr/share/zabbix/ui/modules/.  Storing custom
 // widget data here means normal widget updates (install_widget.sh) never touch it.
 define('WAGO_CUSTOM_BASE',   '/var/lib/zabbix/wago_kbus');
 define('WAGO_CUSTOM_IMAGES', '/var/lib/zabbix/wago_kbus/images');
 define('WAGO_CUSTOM_MAP',    '/var/lib/zabbix/wago_kbus/custom_svg_map.json');
 
-// Built-in module descriptions.  Users maintain these in the widget source rather than as a
-// Zabbix macro so that the full table stays readable without template re-import.
-// Minimum preserved: 750-652/000-000 = Serial interface (req §7).
-$WAGO_DESCRIPTIONS = [
-    '750-652/000-000' => 'Serial interface',
-    '750-511'         => 'Serial interface RS232/RS485',
-    '750-511/000-002' => 'Serial interface RS232/RS485',
-    '750-504'         => '4-channel digital output (0.5 A, 24 V DC)',
-    '750-508'         => '4-channel digital input (24 V DC)',
-    '750-400'         => '2-channel digital input (24 V DC)',
-    '750-402'         => '4-channel digital input (24 V DC)',
-    '750-403'         => '8-channel digital input (24 V DC)',
-    '750-405'         => '4-channel digital input (5 V DC)',
-    '750-410'         => '2-channel digital input (230 V AC)',
-    '750-430'         => '8-channel digital input (24 V DC)',
-    '750-436'         => '8-channel digital input (24 V DC, 0.2 ms)',
-    '750-501'         => '2-channel digital output (24 V DC, 0.5 A)',
-    '750-502'         => '2-channel digital output (24 V DC, 2 A)',
-    '750-516'         => '2-channel digital output (24 V DC, 0.5 A)',
-    '750-530'         => '8-channel digital output (24 V DC, 0.5 A)',
-    '750-455'         => '4-channel analog input (0–10 V)',
-    '750-467'         => '2-channel PT100/PT1000 input',
-    '750-469'         => '2-channel thermocouple input',
-    '750-478'         => '4-channel analog input (0/4–20 mA)',
-    '750-479'         => '2-channel analog input (±10 V)',
-    '750-495'         => '4-channel analog input (0–10 V)',
-    '750-562'         => '2-channel analog output (0–20 mA)',
-    '750-600'         => 'Bus end module',
-    '750-610'         => 'Power supply module (24 V DC)',
-    '750-614'         => 'Power supply module (5 V DC)',
-    '750-616'         => 'Power supply module (24 V DC, 10 A)',
-    '750-638'         => '2-channel absolute encoder input (SSI)',
-];
-
-// Built-in SVG maps: article → relative filename in assets/img/.
-// Entries are expanded to absolute paths below so $loadSvg takes a single resolved path.
-$SVG_CONTROLLER_MAP = [
-    '750-880'  => 'wago_0750-0880.svg',
-    '750-0880' => 'wago_0750-0880.svg',
-];
-$SVG_MODULE_MAP = [
-    '750-511' => 'wago_0750-0511.svg',
-];
-
+// Fallback SVG paths — built-in assets used when no configured entry covers a slot.
+// These are the only product-specific constants that may remain in PHP; all display names,
+// expected SNMP_IDs, image filenames, and descriptions come exclusively from JSON at runtime.
 $img_dir                 = __DIR__ . '/../assets/img/';
 $SVG_FALLBACK_CONTROLLER = $img_dir . 'wago_0750-xxxx_controller.svg';
 $SVG_FALLBACK_MODULE     = $img_dir . 'wago_0750-xxxx_modul.svg';
+$fallbackCtrlImg         = basename($SVG_FALLBACK_CONTROLLER);
+$fallbackModImg          = basename($SVG_FALLBACK_MODULE);
 
-// Expand built-in maps to absolute paths.
-foreach ($SVG_CONTROLLER_MAP as $k => $v) {
-    $SVG_CONTROLLER_MAP[$k] = $img_dir . $v;
-}
-foreach ($SVG_MODULE_MAP as $k => $v) {
-    $SVG_MODULE_MAP[$k] = $img_dir . $v;
-}
+// Valid image filename: basename only, alphanumeric/underscore/hyphen, .svg suffix.
+// No path separators — prevents traversal at the filename level.
+$validFilename = static fn(string $f): bool =>
+    (bool) preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_\-]*\.svg$/', $f);
 
-// Merge custom SVG entries from WAGO_CUSTOM_MAP into the built-in maps.
-// Custom entries override built-in entries with the same key.
-// Any absent/malformed/unsafe entry is silently skipped; falls back to built-ins.
-$mergeCustomMaps = static function () use (&$SVG_CONTROLLER_MAP, &$SVG_MODULE_MAP): void {
+// Resolve a filename to an absolute path inside WAGO_CUSTOM_IMAGES.
+// Is the file a non-symlink readable regular file whose realpath is strictly inside the
+// images directory?  Returns the absolute path on success, null otherwise.
+$imagesReal = realpath(WAGO_CUSTOM_IMAGES);
+$resolveImgPath = static function (string $filename) use ($imagesReal): ?string {
+    if ($imagesReal === false) {
+        return null; // images dir does not exist yet.
+    }
+    $path = WAGO_CUSTOM_IMAGES . '/' . $filename;
+    if (is_link($path) || !is_file($path) || !is_readable($path)) {
+        return null;
+    }
+    $real = realpath($path);
+    return ($real !== false && str_starts_with($real, $imagesReal . '/')) ? $path : null;
+};
+
+// Load, validate, and return the configuration from WAGO_CUSTOM_MAP.
+//
+// Schema (v1.1):
+//   controllers  object keyed by SNMP_ID string (starts with digit; alphanumeric/slash/hyphen)
+//   modules      object keyed by 1-based slot string ("1", "2", …)
+//   Each entry:  {"SNMP_ID":"…","name":"…","img":"filename.svg","description":"…"}
+//
+// Controller matching: first entry whose SNMP_ID === live layout.controller (strict equality).
+// Module matching:     if total configured count ≠ live count → ALL modules fall back.
+//                      Otherwise: entry at key=slot whose SNMP_ID === live article.
+//
+// Any absent/malformed/unsafe entry is silently skipped; falls back to generic built-in SVGs.
+$loadConfigMap = static function () use ($validFilename, $resolveImgPath): array {
+    $result = ['controllers' => [], 'modules' => []];
+
     $raw = @file_get_contents(WAGO_CUSTOM_MAP);
     if ($raw === false) {
-        return; // File absent — normal before any custom assets are configured.
+        return $result; // File absent — normal before custom_svg_map.json is seeded.
     }
     $parsed = json_decode($raw, true);
     if (!is_array($parsed)) {
-        return; // Malformed JSON — fail safe, use built-ins only.
+        return $result; // Malformed JSON — fail safe, use fallback SVGs only.
     }
 
-    // Valid key: starts with digit, then digits/letters/forward-slash/hyphen only.
-    // Covers concrete articles (750-511), variants (750-511/000-002), generics (750-5xx).
-    $validKey = static fn(string $k): bool =>
+    // Controller key: starts with digit, then digits/letters/slash/hyphen.
+    $validCtrlKey = static fn(string $k): bool =>
         (bool) preg_match('/^[0-9][0-9a-zA-Z\/\-]*$/', $k);
+    // Module key: positive integer string (1-based slot number, e.g. "1", "2", "19").
+    $validModKey = static fn(string $k): bool =>
+        (bool) preg_match('/^[1-9][0-9]*$/', $k);
 
-    // Valid filename: basename only, alphanumeric/underscore/hyphen, .svg suffix.
-    // No path separators — prevents any traversal attempt at the filename level.
-    $validFilename = static fn(string $f): bool =>
-        (bool) preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_\-]*\.svg$/', $f);
-
-    // Is the custom file safe?  Non-symlink, readable regular file whose realpath
-    // stays strictly inside WAGO_CUSTOM_IMAGES.
-    $imagesReal = realpath(WAGO_CUSTOM_IMAGES);
-    $validFile = static function (string $filename) use ($imagesReal): bool {
-        if ($imagesReal === false) {
-            return false; // WAGO_CUSTOM_IMAGES does not exist.
+    // Validate and load a single entry object.  Returns null for any missing/wrong-type field
+    // or an invalid image filename.  img_path is null when the file is absent/unsafe.
+    $loadEntry = static function ($entry) use ($validFilename, $resolveImgPath): ?array {
+        if (!is_array($entry)) {
+            return null;
         }
-        $path = WAGO_CUSTOM_IMAGES . '/' . $filename;
-        if (is_link($path)) {
-            return false; // Reject symlinks — would allow escaping the images dir.
+        $name   = $entry['name']        ?? null;
+        $snmpId = $entry['SNMP_ID']     ?? null;
+        $img    = $entry['img']         ?? null;
+        $desc   = $entry['description'] ?? null;
+        if (!is_string($name) || !is_string($snmpId) || !is_string($img) || !is_string($desc)) {
+            return null;
         }
-        if (!is_file($path) || !is_readable($path)) {
-            return false;
+        if (!$validFilename($img)) {
+            return null;
         }
-        $real = realpath($path);
-        // realpath must be inside images dir (defense-in-depth against bind-mount tricks).
-        return $real !== false && str_starts_with($real, $imagesReal . '/');
+        return [
+            'SNMP_ID'     => $snmpId,
+            'name'        => $name,
+            'img'         => $img,
+            'img_path'    => $resolveImgPath($img),
+            'description' => $desc,
+        ];
     };
 
-    foreach (['controllers', 'modules'] as $section) {
-        if (!isset($parsed[$section]) || !is_array($parsed[$section])) {
-            continue;
-        }
-        foreach ($parsed[$section] as $key => $filename) {
-            if (!is_string($key) || !$validKey($key)) {
+    if (isset($parsed['controllers']) && is_array($parsed['controllers'])) {
+        foreach ($parsed['controllers'] as $key => $entry) {
+            if (!is_string($key) || !$validCtrlKey($key)) {
                 continue;
             }
-            if (!is_string($filename) || !$validFilename($filename)) {
-                continue;
-            }
-            if (!$validFile($filename)) {
-                continue;
-            }
-            $absPath = WAGO_CUSTOM_IMAGES . '/' . $filename;
-            if ($section === 'controllers') {
-                $SVG_CONTROLLER_MAP[$key] = $absPath;
-            } else {
-                $SVG_MODULE_MAP[$key] = $absPath;
+            $loaded = $loadEntry($entry);
+            if ($loaded !== null) {
+                $result['controllers'][$key] = $loaded;
             }
         }
     }
+    if (isset($parsed['modules']) && is_array($parsed['modules'])) {
+        foreach ($parsed['modules'] as $key => $entry) {
+            $key = (string) $key;
+            if (!$validModKey($key)) {
+                continue;
+            }
+            $loaded = $loadEntry($entry);
+            if ($loaded !== null) {
+                $result['modules'][$key] = $loaded;
+            }
+        }
+    }
+    return $result;
 };
-$mergeCustomMaps();
+
+$configMap         = $loadConfigMap();
+$configControllers = $configMap['controllers'];
+$configModules     = $configMap['modules'];
 
 // Load and sanitize an SVG from an absolute path.
 // All paths entering here were either constructed from $img_dir (built-in allowlist)
-// or validated by $mergeCustomMaps (custom files verified inside WAGO_CUSTOM_IMAGES).
+// or produced by $resolveImgPath (custom files verified inside WAGO_CUSTOM_IMAGES).
 // The is_link / is_file / is_readable guards are defence-in-depth.
 $loadSvg = static function (string $abspath): string {
     if (is_link($abspath) || !is_file($abspath) || !is_readable($abspath)) {
@@ -151,70 +144,39 @@ $loadSvg = static function (string $abspath): string {
     return $content;
 };
 
-// Resolve a controller article to an SVG path.
-// Returns ['path' => string, 'is_fallback' => bool, 'norm_key' => string].
-$resolveControllerSvg = static function (?string $article) use ($SVG_CONTROLLER_MAP, $SVG_FALLBACK_CONTROLLER): array {
-    if ($article === null) {
-        return ['path' => $SVG_FALLBACK_CONTROLLER, 'is_fallback' => true, 'norm_key' => ''];
+// Locate the configured controller entry whose SNMP_ID strictly equals the live article.
+// Returns the entry array on match, null when unrecognised or article is absent.
+$resolveController = static function (?string $liveArticle) use ($configControllers): ?array {
+    if ($liveArticle === null) {
+        return null;
     }
-    $base = trim(preg_replace('/\/.*$/', '', $article));
-    if (stripos($base, 'x') !== false || strpos($base, '*') !== false) {
-        return ['path' => $SVG_FALLBACK_CONTROLLER, 'is_fallback' => true, 'norm_key' => $base];
+    foreach ($configControllers as $entry) {
+        if ($entry['SNMP_ID'] === $liveArticle) {
+            return $entry;
+        }
     }
-    if (isset($SVG_CONTROLLER_MAP[$base])) {
-        return ['path' => $SVG_CONTROLLER_MAP[$base], 'is_fallback' => false, 'norm_key' => $base];
-    }
-    return ['path' => $SVG_FALLBACK_CONTROLLER, 'is_fallback' => true, 'norm_key' => $base];
+    return null;
 };
 
-// Resolve a module article to an SVG path.
-// Returns ['path' => string, 'is_fallback' => bool, 'norm_key' => string].
-//
-// Resolution steps:
-//   1. Exact key — allows an explicit custom mapping for generic articles (e.g. '750-5xx').
-//   2. Wildcard/family patterns without an explicit entry — always fallback.
-//      Guarantees '750-5xx' never accidentally resolves to concrete '750-511'.
-//   3. Concrete variant: strip '/...' suffix, look up base article
-//      (e.g. '750-511/000-002' → '750-511').
-$resolveModuleSvg = static function (string $article) use ($SVG_MODULE_MAP, $SVG_FALLBACK_MODULE): array {
-    $article = trim($article);
-    // Step 1: exact key match (supports deliberate generic-key custom mappings).
-    if (isset($SVG_MODULE_MAP[$article])) {
-        return ['path' => $SVG_MODULE_MAP[$article], 'is_fallback' => false, 'norm_key' => $article];
-    }
-    // Step 2: wildcard/family patterns without explicit entry → always fallback.
-    if (stripos($article, 'x') !== false || strpos($article, '*') !== false) {
-        return ['path' => $SVG_FALLBACK_MODULE, 'is_fallback' => true, 'norm_key' => $article];
-    }
-    // Step 3: concrete variant — strip variant suffix and look up base.
-    $base = trim(preg_replace('/\/.*$/', '', $article));
-    if (isset($SVG_MODULE_MAP[$base])) {
-        return ['path' => $SVG_MODULE_MAP[$base], 'is_fallback' => false, 'norm_key' => $base];
-    }
-    return ['path' => $SVG_FALLBACK_MODULE, 'is_fallback' => true, 'norm_key' => $base];
-};
-
-// Append a usage hint to a tooltip when the fallback SVG is used.
+// Append a usage hint to a tooltip when no configured entry covers a slot, when the
+// entry's img is missing/unsafe, or when it resolves to the generic fallback image.
 // Rendered only inside the CSS hover tooltip — not visible on the main rail.
-$fallbackHint = static function (string $normKey, string $section) use ($e): string {
-    if ($normKey === '') {
-        return ''; // No article known; nothing to hint at.
+$moduleHint = static function (int $slot, string $liveSnmpId) use ($e): string {
+    if ($liveSnmpId === '') {
+        return '';
     }
-    return '<br>No specific SVG for ' . $e('"' . $normKey . '"') . '.'
-        . ' Copy .svg to /var/lib/zabbix/wago_kbus/images/'
-        . ' and add key ' . $e('"' . $normKey . '"')
-        . ' to custom_svg_map.json (' . $e($section) . ').';
+    return '<br>To customise: copy .svg to /var/lib/zabbix/wago_kbus/images/'
+        . ' and update ' . $e('modules["' . $slot . '"]')
+        . ' in custom_svg_map.json with SNMP_ID ' . $e('"' . $liveSnmpId . '"') . '.';
 };
 
-// Look up a human-readable description for a module article.
-// Tries the full article first (e.g. 750-511/000-002), then the base (e.g. 750-511).
-$moduleDescription = static function (string $article) use ($WAGO_DESCRIPTIONS): string {
-    $article = trim($article);
-    if (isset($WAGO_DESCRIPTIONS[$article])) {
-        return $WAGO_DESCRIPTIONS[$article];
+$controllerHint = static function (string $liveSnmpId) use ($e): string {
+    if ($liveSnmpId === '') {
+        return '';
     }
-    $base = trim(preg_replace('/\/.*$/', '', $article));
-    return $WAGO_DESCRIPTIONS[$base] ?? '';
+    return '<br>To customise: copy .svg to /var/lib/zabbix/wago_kbus/images/'
+        . ' and add/update a controllers entry with SNMP_ID ' . $e('"' . $liveSnmpId . '"')
+        . ' in custom_svg_map.json.';
 };
 
 ob_start();
@@ -230,42 +192,79 @@ if ($data['error'] !== null) {
     echo '<div class="wago-kbus-rail">';
 
     // Controller — always first on the rail.
-    $ctrlResult  = $resolveControllerSvg($controllerArticle);
-    $ctrlSvg     = $loadSvg($ctrlResult['path']);
-    $ctrlDisplay = $controllerArticle !== null
-        ? $controllerArticle . ' (Controller)'
-        : 'Controller (model unknown — wioArticleName not collected)';
-    $ctrlHint    = $ctrlResult['is_fallback'] ? $fallbackHint($ctrlResult['norm_key'], 'controllers') : '';
+    $ctrlEntry = $resolveController($controllerArticle);
+    if ($ctrlEntry !== null) {
+        $ctrlSvgPath = $ctrlEntry['img_path'] ?? $SVG_FALLBACK_CONTROLLER;
+        $ctrlLabel   = $ctrlEntry['name'] . ' (Controller)';
+        $ctrlTooltip = $e($ctrlLabel);
+        if ($ctrlEntry['description'] !== '') {
+            $ctrlTooltip .= ': ' . $e($ctrlEntry['description']);
+        }
+        if ($ctrlEntry['img_path'] === null || $ctrlEntry['img'] === $fallbackCtrlImg) {
+            $ctrlTooltip .= $controllerHint($ctrlEntry['SNMP_ID']);
+        }
+    } else {
+        $ctrlSvgPath = $SVG_FALLBACK_CONTROLLER;
+        $ctrlLabel   = $controllerArticle !== null
+            ? $controllerArticle . ' (Controller)'
+            : 'Controller (model unknown — wioArticleName not collected)';
+        $ctrlTooltip = $e($ctrlLabel);
+        if ($controllerArticle !== null) {
+            $ctrlTooltip .= $controllerHint($controllerArticle);
+        }
+    }
+    $ctrlSvg = $loadSvg($ctrlSvgPath);
     if ($ctrlSvg !== '') {
         $b64 = base64_encode($ctrlSvg);
-        echo '<div class="wago-kbus-item" role="img" aria-label="' . $e($ctrlDisplay) . '">';
-        echo '<img src="data:image/svg+xml;base64,' . $b64 . '" alt="' . $e($ctrlDisplay) . '">';
-        echo '<div class="wago-kbus-tooltip" role="tooltip">' . $e($ctrlDisplay) . $ctrlHint . '</div>';
+        echo '<div class="wago-kbus-item" role="img" aria-label="' . $e($ctrlLabel) . '">';
+        echo '<img src="data:image/svg+xml;base64,' . $b64 . '" alt="' . $e($ctrlLabel) . '">';
+        echo '<div class="wago-kbus-tooltip" role="tooltip">' . $ctrlTooltip . '</div>';
         echo '</div>';
     }
 
     // K-bus modules in numeric slot order (already sorted by the preprocessing item).
+    // If configured module count differs from live count, ALL modules use the generic fallback.
+    // The controller is resolved independently of this count check.
+    $allFallback = (count($configModules) !== count($modules));
+
     foreach ($modules as $module) {
-        $article = (string) ($module['article'] ?? '');
-        $slot    = (int)    ($module['slot']    ?? 0);
-        $type    = $module['type'] !== null ? (int) $module['type'] : null;
-
-        $desc      = $moduleDescription($article);
+        $article   = (string) ($module['article'] ?? '');
+        $slot      = (int)    ($module['slot']    ?? 0);
+        $type      = $module['type'] !== null ? (int) $module['type'] : null;
         $typeLabel = $type !== null ? ' (type ' . $type . ')' : '';
-        $ariaLabel = 'Slot ' . $slot . ': ' . $article;
-        $tooltip   = $e($article)
-            . ($desc !== '' ? ' — ' . $e($desc) : '')
-            . $e($typeLabel);
 
-        $modResult  = $resolveModuleSvg($article);
-        $svgContent = $loadSvg($modResult['path']);
-        $modHint    = $modResult['is_fallback'] ? $fallbackHint($modResult['norm_key'], 'modules') : '';
+        $matchedEntry = null;
+        if (!$allFallback) {
+            $key = (string) $slot;
+            if (isset($configModules[$key]) && $configModules[$key]['SNMP_ID'] === $article) {
+                $matchedEntry = $configModules[$key];
+            }
+        }
 
+        if ($matchedEntry !== null) {
+            $svgPath   = $matchedEntry['img_path'] ?? $SVG_FALLBACK_MODULE;
+            $ariaLabel = 'Slot ' . $slot . ': ' . $matchedEntry['name'];
+            $tooltip   = $e('Slot ' . $slot . ': ' . $matchedEntry['name']);
+            if ($matchedEntry['description'] !== '') {
+                $tooltip .= ' — ' . $e($matchedEntry['description']);
+            }
+            $tooltip .= $e($typeLabel);
+            if ($matchedEntry['img_path'] === null || $matchedEntry['img'] === $fallbackModImg) {
+                $tooltip .= $moduleHint($slot, $article);
+            }
+        } else {
+            $svgPath   = $SVG_FALLBACK_MODULE;
+            $ariaLabel = 'Slot ' . $slot . ': ' . $article;
+            $tooltip   = $e($article) . $e($typeLabel);
+            $tooltip  .= $moduleHint($slot, $article);
+        }
+
+        $svgContent = $loadSvg($svgPath);
         if ($svgContent !== '') {
             $b64 = base64_encode($svgContent);
             echo '<div class="wago-kbus-item" role="img" aria-label="' . $e($ariaLabel) . '">';
             echo '<img src="data:image/svg+xml;base64,' . $b64 . '" alt="' . $e($ariaLabel) . '">';
-            echo '<div class="wago-kbus-tooltip" role="tooltip">' . $tooltip . $modHint . '</div>';
+            echo '<div class="wago-kbus-tooltip" role="tooltip">' . $tooltip . '</div>';
             echo '</div>';
         }
     }

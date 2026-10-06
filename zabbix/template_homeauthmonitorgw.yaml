@@ -1211,7 +1211,7 @@ zabbix_export:
           description: 'Gateway source name used by the WAGO core items and dashboard.'
         - macro: '{$WAGO_MODULE_DESCRIPTIONS}'
           value: '{"750-652/000-000":"Serial interface"}'
-          description: 'Compatibility shim used only by the automation.gateway.wago.module_inventory text item. The canonical, user-editable description table now lives in the wago_kbus widget source (widget.view.php $WAGO_DESCRIPTIONS). Minimum preserved entry: 750-652/000-000 = Serial interface.'
+          description: 'Used only by automation.gateway.wago.module_inventory for human-readable slot labels. Widget descriptions are now driven by custom_svg_map.json at /var/lib/zabbix/wago_kbus/. Minimum entry kept: 750-652/000-000 = Serial interface.'
         - macro: '{$PHOENIX_SOURCE}'
           value: 'ups-main'
           description: 'Gateway source name used by the Phoenix Contact UPS core items and dashboard.'
@@ -1485,10 +1485,6 @@ zabbix_export:
                   width: '24'
                   height: '8'
                   fields:
-                    - type: HOST
-                      name: hostid.0
-                      value:
-                        host: 'Template HomeAuthMonitorGW by HTTP'
                     - type: STRING
                       name: reference
                       value: WAGOM

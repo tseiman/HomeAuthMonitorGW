@@ -247,105 +247,112 @@ func TestKbusLayoutMissingWioArticleName(t *testing.T) {
 	}
 }
 
-// TestModuleSvgResolution runs the PHP matching logic (extracted inline) against the
-// requirement test cases using the php CLI.  The function now uses 3-step resolution:
-//   1. Exact key (enables explicit generic-key custom mappings).
-//   2. Wildcard/family patterns without explicit entry → fallback.
-//   3. Concrete variant: strip '/...' suffix, look up base.
-func TestModuleSvgResolution(t *testing.T) {
+// TestDefaultJsonSchema verifies that default_svg_map.json parses as valid JSON, contains
+// exactly 19 module entries, at least one controller entry, and that every entry has the
+// four required string fields (SNMP_ID, name, img, description).
+func TestDefaultJsonSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(widgetDir, "default_svg_map.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Controllers map[string]json.RawMessage `json:"controllers"`
+		Modules     map[string]json.RawMessage `json:"modules"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("default_svg_map.json is not valid JSON: %v", err)
+	}
+	if len(m.Controllers) == 0 {
+		t.Error("default_svg_map.json controllers section is empty")
+	}
+	if len(m.Modules) != 19 {
+		t.Errorf("default_svg_map.json has %d module entries, want 19", len(m.Modules))
+	}
+	type entry struct {
+		SNMPID      string `json:"SNMP_ID"`
+		Name        string `json:"name"`
+		Img         string `json:"img"`
+		Description string `json:"description"`
+	}
+	for key, raw := range m.Controllers {
+		var e entry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			t.Errorf("controllers[%q] not a valid entry object: %v", key, err)
+			continue
+		}
+		if e.SNMPID == "" || e.Name == "" || e.Img == "" {
+			t.Errorf("controllers[%q] has empty required field (SNMP_ID=%q name=%q img=%q)", key, e.SNMPID, e.Name, e.Img)
+		}
+	}
+	for key, raw := range m.Modules {
+		var e entry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			t.Errorf("modules[%q] not a valid entry object: %v", key, err)
+			continue
+		}
+		if e.SNMPID == "" || e.Name == "" || e.Img == "" {
+			t.Errorf("modules[%q] has empty required field (SNMP_ID=%q name=%q img=%q)", key, e.SNMPID, e.Name, e.Img)
+		}
+	}
+}
+
+// TestJsonModuleResolution verifies the count+slot+SNMP_ID matching logic using the php CLI.
+//   - Count match + SNMP_ID match at slot → entry used.
+//   - Count mismatch → ALL modules fall back regardless of SNMP_ID.
+//   - Count match + SNMP_ID mismatch at one slot → only that slot falls back.
+func TestJsonModuleResolution(t *testing.T) {
 	php, err := exec.LookPath("php")
 	if err != nil {
-		t.Skip("php not installed — skipping module resolution test")
+		t.Skip("php not installed — skipping JSON module resolution test")
 	}
 
-	// This PHP snippet mirrors the resolveModuleSvg logic in widget.view.php exactly.
 	phpLogic := `<?php
-function resolveModuleSvg(string $article, array $svgModuleMap, string $fallback): string {
-    $article = trim($article);
-    // Step 1: exact key (supports deliberate generic-key custom mappings).
-    if (array_key_exists($article, $svgModuleMap)) {
-        return $svgModuleMap[$article];
+// Mirror of the widget count+slot+SNMP_ID resolution logic.
+function resolveModules(array $configModules, array $liveModules): array {
+    $allFallback = (count($configModules) !== count($liveModules));
+    $results = [];
+    foreach ($liveModules as $module) {
+        $article = $module['article'];
+        $slot    = $module['slot'];
+        $matched = false;
+        if (!$allFallback) {
+            $key = (string) $slot;
+            if (isset($configModules[$key]) && $configModules[$key]['SNMP_ID'] === $article) {
+                $matched = true;
+            }
+        }
+        $results[] = $matched ? 'matched' : 'fallback';
     }
-    // Step 2: wildcard/family patterns without explicit entry → fallback.
-    if (stripos($article, 'x') !== false || strpos($article, '*') !== false) {
-        return $fallback;
-    }
-    // Step 3: concrete variant — strip suffix and look up base.
-    $base = trim(preg_replace('/\/.*$/', '', $article));
-    return $svgModuleMap[$base] ?? $fallback;
+    return $results;
 }
 
-$map    = ['750-511' => 'wago_0750-0511.svg'];
-$mapGen = ['750-511' => 'wago_0750-0511.svg', '750-5xx' => 'custom_5xx.svg'];
-$fb     = 'wago_0750-xxxx_modul.svg';
-
-$cases = [
-    // Concrete variant normalises to base key.
-    ['750-511/000-002', $map,    'wago_0750-0511.svg'],
-    // Exact base key.
-    ['750-511',         $map,    'wago_0750-0511.svg'],
-    // Generic without explicit entry → fallback.
-    ['750-5xx',         $map,    'wago_0750-xxxx_modul.svg'],
-    ['750-4xx',         $map,    'wago_0750-xxxx_modul.svg'],
-    ['750-5XX',         $map,    'wago_0750-xxxx_modul.svg'],
-    ['750-5xX/000-001', $map,    'wago_0750-xxxx_modul.svg'],
-    // Unknown concrete article → fallback.
-    ['750-999',         $map,    'wago_0750-xxxx_modul.svg'],
-    // Generic WITH explicit custom entry → uses custom SVG (step 1 exact match).
-    ['750-5xx',         $mapGen, 'custom_5xx.svg'],
-    // Concrete variant 750-511/000-002 is NOT affected by generic custom entry '750-5xx'.
-    ['750-511/000-002', $mapGen, 'wago_0750-0511.svg'],
+$cfg = [
+    '1' => ['SNMP_ID' => '750-4xx', 'name' => '750-1405'],
+    '2' => ['SNMP_ID' => '750-5xx', 'name' => '750-5xx'],
 ];
 $ok = true;
-foreach ($cases as [$input, $map, $expected]) {
-    $got = resolveModuleSvg($input, $map, $fb);
-    if ($got !== $expected) {
-        echo "FAIL: resolveModuleSvg($input) = $got, want $expected\n";
-        $ok = false;
-    }
-}
-echo $ok ? "OK\n" : "FAILURES\n";`
 
-	out, err := exec.Command(php, "-r", phpLogic).CombinedOutput()
-	if err != nil {
-		t.Fatalf("php: %v\n%s", err, out)
-	}
-	outputStr := strings.TrimSpace(string(out))
-	if outputStr != "OK" {
-		t.Fatalf("module resolution failures:\n%s", out)
-	}
-}
+// Count match, both SNMP_IDs match → both matched.
+$r = resolveModules($cfg, [['slot'=>1,'article'=>'750-4xx'],['slot'=>2,'article'=>'750-5xx']]);
+if ($r !== ['matched','matched']) { echo "FAIL: count+SNMP match: " . implode(',', $r) . "\n"; $ok = false; }
 
-// TestControllerSvgResolution verifies the controller article → SVG logic.
-func TestControllerSvgResolution(t *testing.T) {
-	php, err := exec.LookPath("php")
-	if err != nil {
-		t.Skip("php not installed")
-	}
-	phpLogic := `<?php
-function resolveControllerSvg(?string $article, array $ctrlMap, string $fallback): string {
-    if ($article === null) return $fallback;
-    $base = trim(preg_replace('/\/.*$/', '', $article));
-    if (stripos($base, 'x') !== false || strpos($base, '*') !== false) return $fallback;
-    return $ctrlMap[$base] ?? $fallback;
-}
-$map = ['750-880' => 'wago_0750-0880.svg'];
-$fb  = 'wago_0750-xxxx_controller.svg';
-$cases = [
-    ['750-880',    'wago_0750-0880.svg'],
-    [null,         'wago_0750-xxxx_controller.svg'],
-    ['750-881',    'wago_0750-xxxx_controller.svg'],
-    ['750-8xx',    'wago_0750-xxxx_controller.svg'],
-];
-$ok = true;
-foreach ($cases as [$input, $expected]) {
-    $got = resolveControllerSvg($input, $map, $fb);
-    if ($got !== $expected) {
-        $disp = $input === null ? 'null' : $input;
-        echo "FAIL: resolveControllerSvg($disp) = $got, want $expected\n";
-        $ok = false;
-    }
-}
+// Count mismatch (2 config, 3 live) → all fallback.
+$r = resolveModules($cfg, [['slot'=>1,'article'=>'750-4xx'],['slot'=>2,'article'=>'750-5xx'],['slot'=>3,'article'=>'750-600']]);
+if ($r !== ['fallback','fallback','fallback']) { echo "FAIL: count mismatch: " . implode(',', $r) . "\n"; $ok = false; }
+
+// Count match, SNMP_ID mismatch on slot 2 only → slot 1 matched, slot 2 fallback.
+$r = resolveModules($cfg, [['slot'=>1,'article'=>'750-4xx'],['slot'=>2,'article'=>'750-999']]);
+if ($r !== ['matched','fallback']) { echo "FAIL: per-slot mismatch: " . implode(',', $r) . "\n"; $ok = false; }
+
+// Count match (0 vs 0) → empty result.
+$r = resolveModules([], []);
+if ($r !== []) { echo "FAIL: empty: not empty\n"; $ok = false; }
+
+// Count match, literal generic key matches live generic article (strict equality).
+$cfgGeneric = ['1' => ['SNMP_ID' => '750-4xx', 'name' => '750-4xx']];
+$r = resolveModules($cfgGeneric, [['slot'=>1,'article'=>'750-4xx']]);
+if ($r !== ['matched']) { echo "FAIL: generic literal match: " . implode(',', $r) . "\n"; $ok = false; }
+
 echo $ok ? "OK\n" : "FAILURES\n";`
 
 	out, err := exec.Command(php, "-r", phpLogic).CombinedOutput()
@@ -353,7 +360,89 @@ echo $ok ? "OK\n" : "FAILURES\n";`
 		t.Fatalf("php: %v\n%s", err, out)
 	}
 	if strings.TrimSpace(string(out)) != "OK" {
-		t.Fatalf("controller resolution failures:\n%s", out)
+		t.Fatalf("JSON module resolution failures:\n%s", out)
+	}
+}
+
+// TestJsonControllerResolution verifies that controller SNMP_ID matching is strict
+// case-sensitive equality.  null article and unrecognised articles produce nil (fallback).
+func TestJsonControllerResolution(t *testing.T) {
+	php, err := exec.LookPath("php")
+	if err != nil {
+		t.Skip("php not installed")
+	}
+	phpLogic := `<?php
+// Mirror of the widget resolveController logic.
+function resolveController(?string $liveArticle, array $configControllers): ?array {
+    if ($liveArticle === null) return null;
+    foreach ($configControllers as $entry) {
+        if ($entry['SNMP_ID'] === $liveArticle) return $entry;
+    }
+    return null;
+}
+
+$cfg = [
+    '750-880' => ['SNMP_ID' => '750-880', 'name' => '750-880', 'description' => 'Controller'],
+];
+$ok = true;
+
+// Exact match.
+$r = resolveController('750-880', $cfg);
+if ($r === null || $r['name'] !== '750-880') { echo "FAIL: exact match returned null or wrong name\n"; $ok = false; }
+
+// Null article → null (fallback).
+if (resolveController(null, $cfg) !== null) { echo "FAIL: null article should return null\n"; $ok = false; }
+
+// Unrecognised article → null (fallback).
+if (resolveController('750-881', $cfg) !== null) { echo "FAIL: 750-881 should return null\n"; $ok = false; }
+
+// Case-sensitive: '750-880' does not match '750-8XX'.
+if (resolveController('750-8XX', $cfg) !== null) { echo "FAIL: case-different should return null\n"; $ok = false; }
+
+// Empty config → null.
+if (resolveController('750-880', []) !== null) { echo "FAIL: empty config should return null\n"; $ok = false; }
+
+echo $ok ? "OK\n" : "FAILURES\n";`
+
+	out, err := exec.Command(php, "-r", phpLogic).CombinedOutput()
+	if err != nil {
+		t.Fatalf("php: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "OK" {
+		t.Fatalf("JSON controller resolution failures:\n%s", out)
+	}
+}
+
+// TestNoHardcodedMapsInPhp checks that the redesigned widget.view.php no longer contains
+// the removed hard-coded product maps or description arrays.
+func TestNoHardcodedMapsInPhp(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(widgetDir, "views/widget.view.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	forbidden := []string{"$WAGO_DESCRIPTIONS", "$SVG_CONTROLLER_MAP", "$SVG_MODULE_MAP"}
+	for _, s := range forbidden {
+		if strings.Contains(content, s) {
+			t.Errorf("widget.view.php still contains removed hard-coded declaration: %q", s)
+		}
+	}
+}
+
+// TestInstallerDefaultPath checks that install_widget.sh defaults to the correct Zabbix 7.4
+// module path (/usr/share/zabbix/ui/modules, not the old /usr/share/zabbix/modules).
+func TestInstallerDefaultPath(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "scripts", "install_widget.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "/usr/share/zabbix/ui/modules") {
+		t.Error("install_widget.sh does not reference /usr/share/zabbix/ui/modules as default path")
+	}
+	// The old path must not be the default.
+	if strings.Contains(content, `ZABBIX_MODULES_DIR="/usr/share/zabbix/modules"`) {
+		t.Error("install_widget.sh still sets old default path /usr/share/zabbix/modules")
 	}
 }
 

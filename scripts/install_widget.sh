@@ -6,7 +6,7 @@
 #
 # Options:
 #   --zabbix-modules-dir DIR   Absolute path to the Zabbix frontend modules directory.
-#                              Default: /usr/share/zabbix/modules
+#                              Default: /usr/share/zabbix/ui/modules
 #   --web-group GROUP          Unix group that runs the Zabbix web frontend (e.g. www-data,
 #                              apache, nginx, zabbix).  Used to set group-read permissions
 #                              on custom asset directories.  Default: www-data
@@ -17,7 +17,7 @@
 #                              Default: /var/lib/zabbix/wago_kbus
 #                              Set this in tests to avoid writing to /var/lib.
 #
-# Widget module directory (/usr/share/zabbix/modules/wago_kbus):
+# Widget module directory (/usr/share/zabbix/ui/modules/wago_kbus):
 #   Replaced atomically on each run via stage-and-swap; stale files are removed.
 #   Running this script a second time is safe and idempotent.
 #
@@ -28,6 +28,15 @@
 #   Permissions: root:<web-group> 750 (dirs) and 640 (files) — readable by the web
 #   server but not writable, so a compromised frontend cannot modify its own config.
 #
+#   On first install, default_svg_map.json (19-slot reference inventory) is copied to
+#   custom_svg_map.json ONLY when the file does not yet exist.  If an existing
+#   custom_svg_map.json is found (including one with the old v1.0 string-value schema),
+#   it is left completely untouched.  See README for manual schema migration guidance.
+#
+#   The four shipped SVG images (controller 880, module 511, controller fallback, module
+#   fallback) are copied to the images directory ONLY when each destination file is absent.
+#   Existing files are never overwritten, preserving site-local modifications.
+#
 # Safety checks performed before any write:
 #   - --zabbix-modules-dir must be an absolute, non-empty path.
 #   - The modules directory must exist and must not be a symlink.
@@ -37,7 +46,7 @@
 # It only copies files on the local filesystem.
 set -euo pipefail
 
-ZABBIX_MODULES_DIR="/usr/share/zabbix/modules"
+ZABBIX_MODULES_DIR="/usr/share/zabbix/ui/modules"
 WEB_GROUP="www-data"
 DRY_RUN=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -91,7 +100,15 @@ WIDGET_STAGE="${WIDGET_DEST}.new.$$"
 
 CUSTOM_IMAGES_DIR="${CUSTOM_DATA_DIR}/images"
 CUSTOM_MAP_FILE="${CUSTOM_DATA_DIR}/custom_svg_map.json"
-STARTER_MAP='{"controllers":{},"modules":{}}'
+DEFAULT_MAP_FILE="${WIDGET_SRC}/default_svg_map.json"
+
+# Shipped SVG images copied to images dir ONLY when each destination file is absent.
+SHIPPED_IMAGES=(
+    "wago_0750-0880.svg"
+    "wago_0750-0511.svg"
+    "wago_0750-xxxx_controller.svg"
+    "wago_0750-xxxx_modul.svg"
+)
 
 echo "Source:           ${WIDGET_SRC}"
 echo "Widget dest:      ${WIDGET_DEST}"
@@ -142,8 +159,18 @@ if [[ "${DRY_RUN}" == "true" ]]; then
     if [[ -f "${CUSTOM_MAP_FILE}" ]]; then
         echo "  Exists (skip): ${CUSTOM_MAP_FILE}"
     else
-        echo "  Would create:  ${CUSTOM_MAP_FILE}  (starter: ${STARTER_MAP})"
+        echo "  Would copy:    ${CUSTOM_MAP_FILE}  (from ${DEFAULT_MAP_FILE})"
     fi
+    echo ""
+    echo "  Shipped images (copy only when destination absent):"
+    for img in "${SHIPPED_IMAGES[@]}"; do
+        dst="${CUSTOM_IMAGES_DIR}/${img}"
+        if [[ -f "${dst}" ]]; then
+            echo "  Exists (skip): ${dst}"
+        else
+            echo "  Would copy:    ${dst}"
+        fi
+    done
     if [[ $EUID -eq 0 ]]; then
         echo "  Would set: root:${WEB_GROUP} 750 on dirs, 640 on files (created paths only)"
     else
@@ -214,12 +241,9 @@ fi
 echo ""
 echo "Checking persistent custom data..."
 
-_created_custom=false
-
 if [[ ! -d "${CUSTOM_DATA_DIR}" ]]; then
     mkdir -p "${CUSTOM_DATA_DIR}"
     echo "  Created: ${CUSTOM_DATA_DIR}"
-    _created_custom=true
 else
     echo "  Exists (preserved): ${CUSTOM_DATA_DIR}"
 fi
@@ -227,32 +251,67 @@ fi
 if [[ ! -d "${CUSTOM_IMAGES_DIR}" ]]; then
     mkdir -p "${CUSTOM_IMAGES_DIR}"
     echo "  Created: ${CUSTOM_IMAGES_DIR}"
-    _created_custom=true
 else
     echo "  Exists (preserved): ${CUSTOM_IMAGES_DIR}"
 fi
 
+# Seed custom_svg_map.json from the versioned default ONLY when absent.
+# If an existing file is found (including old-schema v1.0 JSON), it is left untouched.
+# See README for manual schema migration guidance.
 if [[ ! -f "${CUSTOM_MAP_FILE}" ]]; then
-    printf '%s\n' "${STARTER_MAP}" > "${CUSTOM_MAP_FILE}"
-    echo "  Created: ${CUSTOM_MAP_FILE}"
-    _created_custom=true
+    if [[ -f "${DEFAULT_MAP_FILE}" ]]; then
+        cp "${DEFAULT_MAP_FILE}" "${CUSTOM_MAP_FILE}"
+        echo "  Created: ${CUSTOM_MAP_FILE}  (seeded from default_svg_map.json)"
+    else
+        printf '%s\n' '{"controllers":{},"modules":{}}' > "${CUSTOM_MAP_FILE}"
+        echo "  Created: ${CUSTOM_MAP_FILE}  (empty starter — default_svg_map.json not found)"
+    fi
 else
     echo "  Exists (preserved): ${CUSTOM_MAP_FILE}"
 fi
 
-# Set permissions on custom data only if we just created it (or if root and group exists).
+# Copy shipped SVG images ONLY when each destination file is absent.
+# Existing files (including site-local replacements) are never overwritten.
+echo ""
+echo "Checking shipped SVG images..."
+for img in "${SHIPPED_IMAGES[@]}"; do
+    src="${WIDGET_SRC}/assets/img/${img}"
+    dst="${CUSTOM_IMAGES_DIR}/${img}"
+    if [[ ! -f "${dst}" ]]; then
+        if [[ -f "${src}" ]]; then
+            cp "${src}" "${dst}"
+            echo "  Copied: ${dst}"
+        else
+            echo "  WARNING: shipped image not found in source: ${src}" >&2
+        fi
+    else
+        echo "  Exists (preserved): ${dst}"
+    fi
+done
+
+# Set permissions on custom data.
 # root:<web-group> 750/640: readable by web server, not writable.
 if [[ $EUID -eq 0 ]] && id "${WEB_GROUP}" &>/dev/null 2>&1; then
     chown root:"${WEB_GROUP}" "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}" 2>/dev/null || true
     chmod 750 "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}" 2>/dev/null || true
     chown root:"${WEB_GROUP}" "${CUSTOM_MAP_FILE}" 2>/dev/null || true
     chmod 640 "${CUSTOM_MAP_FILE}" 2>/dev/null || true
+    for img in "${SHIPPED_IMAGES[@]}"; do
+        dst="${CUSTOM_IMAGES_DIR}/${img}"
+        if [[ -f "${dst}" ]]; then
+            chown root:"${WEB_GROUP}" "${dst}" 2>/dev/null || true
+            chmod 640 "${dst}" 2>/dev/null || true
+        fi
+    done
 elif [[ $EUID -ne 0 ]]; then
+    echo ""
     echo "  Note: not running as root; permissions on custom data not set."
     echo "        Run with sudo on a live server, or set manually:"
-    echo "          sudo chown root:${WEB_GROUP} '${CUSTOM_DATA_DIR}' '${CUSTOM_IMAGES_DIR}' '${CUSTOM_MAP_FILE}'"
+    echo "          sudo chown root:${WEB_GROUP} '${CUSTOM_DATA_DIR}' '${CUSTOM_IMAGES_DIR}'"
     echo "          sudo chmod 750 '${CUSTOM_DATA_DIR}' '${CUSTOM_IMAGES_DIR}'"
     echo "          sudo chmod 640 '${CUSTOM_MAP_FILE}'"
+    echo "          sudo chown root:${WEB_GROUP} '${CUSTOM_IMAGES_DIR}'/*.svg"
+    echo "          sudo chmod 640 '${CUSTOM_IMAGES_DIR}'/*.svg"
 fi
 
 echo ""
@@ -260,10 +319,14 @@ echo "Done. Next steps:"
 echo "  1. In Zabbix UI → Administration → General → Modules, click 'Scan directory'."
 echo "  2. Enable the 'WAGO K-bus Visualizer' module."
 echo "  3. Import or update the HomeAuthMonitorGW template (zabbix/template_homeauthmonitorgw.yaml)."
-echo "  4. The WAGO 750-880 dashboard will now use the K-bus Visualizer widget."
+echo "  4. After template import, open the WAGO 750-880 dashboard and select the host"
+echo "     manually in the K-bus Visualizer widget (hostid is not persisted in the template)."
 echo ""
 echo "  To add a custom module/controller SVG (no restart needed):"
 echo "    sudo cp your-module.svg '${CUSTOM_IMAGES_DIR}/'"
 echo "    sudo chown root:${WEB_GROUP} '${CUSTOM_IMAGES_DIR}/your-module.svg'"
 echo "    sudo chmod 640 '${CUSTOM_IMAGES_DIR}/your-module.svg'"
-echo "    Then add the key to '${CUSTOM_MAP_FILE}' — see README for JSON format."
+echo "    Then add or update the entry in '${CUSTOM_MAP_FILE}' — see README for JSON schema."
+echo ""
+echo "  If upgrading from widget v1.0 and custom_svg_map.json uses the old string-value"
+echo "    schema, it was preserved unchanged.  See README for manual migration steps."

@@ -1,0 +1,31 @@
+{
+  "controllers": {
+    "750-880": {
+      "SNMP_ID": "750-880",
+      "name": "750-880",
+      "img": "wago_0750-0880.svg",
+      "description": "WAGO 750-880 Ethernet controller; 100 Mbit/s; programmable; supports IEC 61131-3"
+    }
+  },
+  "modules": {
+    "1":  {"name": "750-1405",        "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "2 pulse-width outputs; DC 24 V; 0.1 A; 250 Hz"},
+    "2":  {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "3":  {"name": "750-511/000-002", "SNMP_ID": "750-511/000-002", "img": "wago_0750-0511.svg",       "description": "Serial interface RS232/RS485"},
+    "4":  {"name": "750-511/000-002", "SNMP_ID": "750-511/000-002", "img": "wago_0750-0511.svg",       "description": "Serial interface RS232/RS485"},
+    "5":  {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "6":  {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "7":  {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "8":  {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "9":  {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "10": {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "11": {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "12": {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "13": {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"},
+    "14": {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "15": {"name": "750-5xx",         "SNMP_ID": "750-5xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital output module; 750-5xx family; exact article not identified"},
+    "16": {"name": "750-652/000-000", "SNMP_ID": "750-652/000-000", "img": "wago_0750-xxxx_modul.svg", "description": "Serial interface"},
+    "17": {"name": "750-652/000-000", "SNMP_ID": "750-652/000-000", "img": "wago_0750-xxxx_modul.svg", "description": "Serial interface"},
+    "18": {"name": "750-652/000-000", "SNMP_ID": "750-652/000-000", "img": "wago_0750-xxxx_modul.svg", "description": "Serial interface"},
+    "19": {"name": "750-4xx",         "SNMP_ID": "750-4xx",         "img": "wago_0750-xxxx_modul.svg", "description": "Digital or analog I/O module; 750-4xx family; exact article not identified"}
+  }
+}
