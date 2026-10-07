@@ -4,9 +4,9 @@
   "type": "widget",
   "name": "WAGO K-bus Visualizer",
   "namespace": "WagoKbus",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "author": "HomeAuthMonitorGW",
-  "description": "Renders WAGO controller and K-bus modules as a horizontal SVG rail. Data comes from the automation.gateway.wago.kbus_layout item provided by the HomeAuthMonitorGW template.",
+  "description": "Automatically discovers physical WAGO K-bus slots and identifies modules from a reusable SVG catalog using SNMP ID, type, and process-image bit signature.",
   "widget": {
     "js_class": "CWidgetWagoKbus",
     "size": {

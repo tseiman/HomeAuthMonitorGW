@@ -28,18 +28,18 @@
 #   Permissions: root:<web-group> 750 (dirs) and 640 (files) — readable by the web
 #   server but not writable, so a compromised frontend cannot modify its own config.
 #
-#   On first install, default_svg_map.json (19-slot reference inventory) is copied to
+#   On first install, default_svg_map.json (reusable module catalog) is copied to
 #   custom_svg_map.json ONLY when the file does not yet exist.  If an existing
-#   custom_svg_map.json is found (including one with the old v1.0 string-value schema),
-#   it is left completely untouched.  See README for manual schema migration guidance.
+#   custom_svg_map.json is found (including an old slot-keyed schema),
+#   its contents are left untouched.  See README for manual schema migration guidance.
 #
-#   The four shipped SVG images (controller 880, module 511, controller fallback, module
-#   fallback) are copied to the images directory ONLY when each destination file is absent.
-#   Existing files are never overwritten, preserving site-local modifications.
+#   Every regular, non-symlink *.svg from assets/img and catalog_images is copied to the
+#   images directory ONLY when its destination is absent. Existing files are never
+#   overwritten, preserving site-local modifications.
 #
 # Safety checks performed before any write:
 #   - --zabbix-modules-dir must be an absolute, non-empty path.
-#   - The modules directory must exist and must not be a symlink.
+#   - Module and persistent-data paths must not contain symlink components.
 #   - If wago_kbus already exists, it must be a plain directory (not a symlink or file).
 #
 # This script never modifies a live Zabbix database or API session.
@@ -94,6 +94,10 @@ if [[ -z "${ZABBIX_MODULES_DIR}" || "${ZABBIX_MODULES_DIR:0:1}" != "/" ]]; then
     echo "ERROR: --zabbix-modules-dir must be an absolute path; got: '${ZABBIX_MODULES_DIR}'" >&2
     exit 1
 fi
+if [[ -z "${CUSTOM_DATA_DIR}" || "${CUSTOM_DATA_DIR:0:1}" != "/" ]]; then
+    echo "ERROR: WAGO_KBUS_DATA_DIR must be an absolute path; got: '${CUSTOM_DATA_DIR}'" >&2
+    exit 1
+fi
 
 WIDGET_DEST="${ZABBIX_MODULES_DIR}/wago_kbus"
 WIDGET_STAGE="${WIDGET_DEST}.new.$$"
@@ -101,14 +105,38 @@ WIDGET_STAGE="${WIDGET_DEST}.new.$$"
 CUSTOM_IMAGES_DIR="${CUSTOM_DATA_DIR}/images"
 CUSTOM_MAP_FILE="${CUSTOM_DATA_DIR}/custom_svg_map.json"
 DEFAULT_MAP_FILE="${WIDGET_SRC}/default_svg_map.json"
+CATALOG_IMAGES_DIR="${WIDGET_SRC}/catalog_images"
 
-# Shipped SVG images copied to images dir ONLY when each destination file is absent.
-SHIPPED_IMAGES=(
-    "wago_0750-0880.svg"
-    "wago_0750-0511.svg"
-    "wago_0750-xxxx_controller.svg"
-    "wago_0750-xxxx_modul.svg"
-)
+# Persistent state must be disjoint from the atomically replaced widget tree. Otherwise an
+# update could delete site-local catalog/SVG files before the only-if-absent checks run.
+WIDGET_DEST_NORMALIZED="$(realpath -m -- "${WIDGET_DEST}")"
+CUSTOM_DATA_NORMALIZED="$(realpath -m -- "${CUSTOM_DATA_DIR}")"
+if [[ "${CUSTOM_DATA_NORMALIZED}" == "${WIDGET_DEST_NORMALIZED}" ||
+      "${CUSTOM_DATA_NORMALIZED}" == "${WIDGET_DEST_NORMALIZED}/"* ||
+      "${WIDGET_DEST_NORMALIZED}" == "${CUSTOM_DATA_NORMALIZED}/"* ]]; then
+    echo "ERROR: Persistent data and widget destination paths overlap." >&2
+    echo "  Widget destination: ${WIDGET_DEST_NORMALIZED}" >&2
+    echo "  Persistent data:   ${CUSTOM_DATA_NORMALIZED}" >&2
+    echo "  Use disjoint paths so widget replacement cannot delete persistent files." >&2
+    exit 1
+fi
+
+# Build a deterministic source list without following symlinks. assets/img wins if a
+# catalog_images file has the same basename.
+declare -a SHIPPED_IMAGE_SOURCES=()
+declare -A SHIPPED_IMAGE_NAMES=()
+shopt -s nullglob
+for source_dir in "${WIDGET_SRC}/assets/img" "${CATALOG_IMAGES_DIR}"; do
+    for src in "${source_dir}"/*.svg; do
+        [[ -f "${src}" && ! -L "${src}" ]] || continue
+        img="${src##*/}"
+        if [[ -z "${SHIPPED_IMAGE_NAMES[${img}]+x}" ]]; then
+            SHIPPED_IMAGE_NAMES["${img}"]=1
+            SHIPPED_IMAGE_SOURCES+=("${src}")
+        fi
+    done
+done
+shopt -u nullglob
 
 echo "Source:           ${WIDGET_SRC}"
 echo "Widget dest:      ${WIDGET_DEST}"
@@ -120,6 +148,94 @@ if [[ ! -d "${WIDGET_SRC}" ]]; then
     echo "ERROR: Widget source directory not found: ${WIDGET_SRC}" >&2
     exit 1
 fi
+
+reject_symlink_components() {
+    local path="$1"
+    local current="/"
+    local component
+    local -a components=()
+
+    IFS='/' read -r -a components <<< "${path#/}"
+    for component in "${components[@]}"; do
+        [[ -n "${component}" ]] || continue
+        if [[ "${component}" == "." || "${component}" == ".." ]]; then
+            echo "ERROR: Path contains forbidden component '${component}': ${path}" >&2
+            exit 1
+        fi
+        current="${current%/}/${component}"
+        if [[ -L "${current}" ]]; then
+            echo "ERROR: Path contains a symlink component: ${current}" >&2
+            echo "  Refusing privileged writes through symlinks." >&2
+            exit 1
+        fi
+    done
+}
+
+validate_root_owned_ancestors() {
+    [[ $EUID -eq 0 ]] || return 0
+
+    local path="$1"
+    local current="/"
+    local component owner mode permissions group_digit other_digit
+    local -a components=()
+
+    IFS='/' read -r -a components <<< "${path#/}"
+    for component in "${components[@]}"; do
+        [[ -n "${component}" ]] || continue
+        current="${current%/}/${component}"
+        [[ -e "${current}" ]] || break
+        read -r owner mode < <(stat -c '%u %a' -- "${current}")
+        permissions="${mode: -3}"
+        group_digit="${permissions:1:1}"
+        other_digit="${permissions:2:1}"
+        if [[ "${owner}" != "0" ]] || (( (group_digit & 2) != 0 || (other_digit & 2) != 0 )); then
+            echo "ERROR: Unsafe privileged destination component: ${current}" >&2
+            echo "  Expected uid 0 and no group/other write bits; found uid ${owner}, mode ${mode}." >&2
+            echo "  Refusing writes because an unprivileged account could swap this path." >&2
+            exit 1
+        fi
+    done
+}
+
+validate_persistent_paths() {
+    reject_symlink_components "${CUSTOM_DATA_DIR}"
+    reject_symlink_components "${CUSTOM_IMAGES_DIR}"
+    reject_symlink_components "${CUSTOM_MAP_FILE}"
+    validate_root_owned_ancestors "${CUSTOM_DATA_DIR}"
+    validate_root_owned_ancestors "${CUSTOM_IMAGES_DIR}"
+    validate_root_owned_ancestors "${CUSTOM_MAP_FILE}"
+
+    if [[ -e "${CUSTOM_DATA_DIR}" && ! -d "${CUSTOM_DATA_DIR}" ]]; then
+        echo "ERROR: Persistent data path is not a directory: ${CUSTOM_DATA_DIR}" >&2
+        exit 1
+    fi
+    if [[ -e "${CUSTOM_IMAGES_DIR}" && ! -d "${CUSTOM_IMAGES_DIR}" ]]; then
+        echo "ERROR: Persistent image path is not a directory: ${CUSTOM_IMAGES_DIR}" >&2
+        exit 1
+    fi
+    if [[ -e "${CUSTOM_MAP_FILE}" && ! -f "${CUSTOM_MAP_FILE}" ]]; then
+        echo "ERROR: Persistent catalog path is not a regular file: ${CUSTOM_MAP_FILE}" >&2
+        exit 1
+    fi
+
+    local src dst
+    for src in "${SHIPPED_IMAGE_SOURCES[@]}"; do
+        dst="${CUSTOM_IMAGES_DIR}/${src##*/}"
+        reject_symlink_components "${dst}"
+        validate_root_owned_ancestors "${dst}"
+        if [[ -e "${dst}" && ! -f "${dst}" ]]; then
+            echo "ERROR: Persistent SVG destination is not a regular file: ${dst}" >&2
+            exit 1
+        fi
+    done
+}
+
+# Validate all privileged destinations even for --dry-run so previews do not accept unsafe targets.
+reject_symlink_components "${ZABBIX_MODULES_DIR}"
+reject_symlink_components "${WIDGET_DEST}"
+validate_root_owned_ancestors "${ZABBIX_MODULES_DIR}"
+validate_root_owned_ancestors "${WIDGET_DEST}"
+validate_persistent_paths
 
 # --- Dry-run -----------------------------------------------------------------
 
@@ -162,13 +278,14 @@ if [[ "${DRY_RUN}" == "true" ]]; then
         echo "  Would copy:    ${CUSTOM_MAP_FILE}  (from ${DEFAULT_MAP_FILE})"
     fi
     echo ""
-    echo "  Shipped images (copy only when destination absent):"
-    for img in "${SHIPPED_IMAGES[@]}"; do
+    echo "  Shipped/catalog images (copy only when destination absent):"
+    for src in "${SHIPPED_IMAGE_SOURCES[@]}"; do
+        img="${src##*/}"
         dst="${CUSTOM_IMAGES_DIR}/${img}"
         if [[ -f "${dst}" ]]; then
             echo "  Exists (skip): ${dst}"
         else
-            echo "  Would copy:    ${dst}"
+            echo "  Would copy:    ${dst}  (from ${src})"
         fi
     done
     if [[ $EUID -eq 0 ]]; then
@@ -255,39 +372,47 @@ else
     echo "  Exists (preserved): ${CUSTOM_IMAGES_DIR}"
 fi
 
+# Revalidate after directory creation to narrow the check/use window.
+validate_persistent_paths
+
 # Seed custom_svg_map.json from the versioned default ONLY when absent.
-# If an existing file is found (including old-schema v1.0 JSON), it is left untouched.
+# If an existing file is found (including old slot-keyed JSON), it is left untouched.
 # See README for manual schema migration guidance.
 if [[ ! -f "${CUSTOM_MAP_FILE}" ]]; then
     if [[ -f "${DEFAULT_MAP_FILE}" ]]; then
-        cp "${DEFAULT_MAP_FILE}" "${CUSTOM_MAP_FILE}"
+        cp --no-clobber --no-dereference "${DEFAULT_MAP_FILE}" "${CUSTOM_MAP_FILE}"
         echo "  Created: ${CUSTOM_MAP_FILE}  (seeded from default_svg_map.json)"
     else
-        printf '%s\n' '{"controllers":{},"modules":{}}' > "${CUSTOM_MAP_FILE}"
+        starter="${CUSTOM_DATA_DIR}/.custom_svg_map.json.$$"
+        printf '%s\n' '{"controllers":{},"modules":{}}' > "${starter}"
+        mv --no-clobber "${starter}" "${CUSTOM_MAP_FILE}"
+        rm -f "${starter}"
         echo "  Created: ${CUSTOM_MAP_FILE}  (empty starter — default_svg_map.json not found)"
     fi
 else
     echo "  Exists (preserved): ${CUSTOM_MAP_FILE}"
 fi
+validate_persistent_paths
 
-# Copy shipped SVG images ONLY when each destination file is absent.
+# Copy shipped/catalog SVG images ONLY when each destination file is absent.
 # Existing files (including site-local replacements) are never overwritten.
 echo ""
-echo "Checking shipped SVG images..."
-for img in "${SHIPPED_IMAGES[@]}"; do
-    src="${WIDGET_SRC}/assets/img/${img}"
+echo "Checking shipped/catalog SVG images..."
+for src in "${SHIPPED_IMAGE_SOURCES[@]}"; do
+    img="${src##*/}"
     dst="${CUSTOM_IMAGES_DIR}/${img}"
     if [[ ! -f "${dst}" ]]; then
-        if [[ -f "${src}" ]]; then
-            cp "${src}" "${dst}"
+        if [[ -f "${src}" && ! -L "${src}" ]]; then
+            cp --no-clobber --no-dereference "${src}" "${dst}"
             echo "  Copied: ${dst}"
-        else
-            echo "  WARNING: shipped image not found in source: ${src}" >&2
         fi
     else
         echo "  Exists (preserved): ${dst}"
     fi
 done
+
+# Refuse a path swap before applying ownership or mode changes.
+validate_persistent_paths
 
 # Set permissions on custom data.
 # root:<web-group> 750/640: readable by web server, not writable.
@@ -296,7 +421,8 @@ if [[ $EUID -eq 0 ]] && id "${WEB_GROUP}" &>/dev/null 2>&1; then
     chmod 750 "${CUSTOM_DATA_DIR}" "${CUSTOM_IMAGES_DIR}" 2>/dev/null || true
     chown root:"${WEB_GROUP}" "${CUSTOM_MAP_FILE}" 2>/dev/null || true
     chmod 640 "${CUSTOM_MAP_FILE}" 2>/dev/null || true
-    for img in "${SHIPPED_IMAGES[@]}"; do
+    for src in "${SHIPPED_IMAGE_SOURCES[@]}"; do
+        img="${src##*/}"
         dst="${CUSTOM_IMAGES_DIR}/${img}"
         if [[ -f "${dst}" ]]; then
             chown root:"${WEB_GROUP}" "${dst}" 2>/dev/null || true
@@ -328,5 +454,5 @@ echo "    sudo chown root:${WEB_GROUP} '${CUSTOM_IMAGES_DIR}/your-module.svg'"
 echo "    sudo chmod 640 '${CUSTOM_IMAGES_DIR}/your-module.svg'"
 echo "    Then add or update the entry in '${CUSTOM_MAP_FILE}' — see README for JSON schema."
 echo ""
-echo "  If upgrading from widget v1.0 and custom_svg_map.json uses the old string-value"
-echo "    schema, it was preserved unchanged.  See README for manual migration steps."
+echo "  If upgrading from a slot-keyed catalog, custom_svg_map.json was preserved unchanged."
+echo "    Migrate it manually to the v2.0 article catalog described in the README."

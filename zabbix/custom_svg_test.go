@@ -46,9 +46,9 @@ func TestCustomMapSchemaValidation(t *testing.T) {
 // Controller key: starts with digit, alphanumeric/slash/hyphen.
 $validCtrlKey = static fn(string $k): bool =>
     (bool) preg_match('/^[0-9][0-9a-zA-Z\/\-]*$/', $k);
-// Module key: positive integer string (1-based slot number).
+// v2.0: module keys are article names — same regex as controller keys.
 $validModKey = static fn(string $k): bool =>
-    (bool) preg_match('/^[1-9][0-9]*$/', $k);
+    (bool) preg_match('/^[0-9][0-9a-zA-Z\/\-]*$/', $k);
 // Valid image filename: basename only, alphanumeric/underscore/hyphen, .svg suffix.
 $validFilename = static fn(string $f): bool =>
     (bool) preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_\-]*\.svg$/', $f);
@@ -73,15 +73,16 @@ $ctrlKeyCases = [
     ['750 880',          false], // space not allowed
     ['',                 false], // empty
 ];
+// v2.0: module keys are article names (same regex as controller keys), not slot integers.
 $modKeyCases = [
-    ['1',    true],
-    ['19',   true],
-    ['100',  true],
-    ['0',    false], // zero not valid (1-based)
-    ['-1',   false], // negative
-    ['abc',  false], // non-numeric
-    ['',     false], // empty
-    ['1x',   false], // non-decimal
+    ['750-400',         true],  // standard article name
+    ['750-511/000-002', true],  // article with slash
+    ['750-5xx',         true],  // family identifier
+    ['1405',            true],  // single-segment numeric (starts with digit)
+    ['abc-123',         false], // must start with digit
+    ['/750-400',        false], // starts with slash
+    ['',                false], // empty
+    ['750 880',         false], // space not allowed
 ];
 $filenameCases = [
     ['wago_0750-0880.svg',   true],
@@ -147,7 +148,8 @@ echo $ok ? "OK\n" : "FAILURES\n";`
 }
 
 // TestCustomMapJSONParsing verifies that absent/malformed JSON causes silent fallback
-// (returns empty maps) and that the new v1.1 object-entry schema is correctly loaded.
+// (returns empty maps) and that the v2.0 catalog-entry schema is correctly loaded.
+// v2.0: module keys are article names; entries include type and process_image.
 func TestCustomMapJSONParsing(t *testing.T) {
 	php := phpSkip(t)
 
@@ -158,9 +160,9 @@ function loadFromJSON(?string $raw): array {
     if ($raw === null) return [$ctrl, $mod];
     $parsed = json_decode($raw, true);
     if (!is_array($parsed)) return [$ctrl, $mod];
-    $validCtrlKey  = fn(string $k) => (bool) preg_match('/^[0-9][0-9a-zA-Z\/\-]*$/', $k);
-    $validModKey   = fn(string $k) => (bool) preg_match('/^[1-9][0-9]*$/', $k);
-    $validFilename = fn(string $f) => (bool) preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_\-]*\.svg$/', $f);
+    // v2.0: module keys are article names, same regex as controller keys.
+    $validCatalogKey = fn(string $k) => (bool) preg_match('/^[0-9][0-9a-zA-Z\/\-]*$/', $k);
+    $validFilename   = fn(string $f) => (bool) preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_\-]*\.svg$/', $f);
     $loadEntry = function($entry) use ($validFilename) {
         if (!is_array($entry)) return null;
         $n = $entry['name'] ?? null; $s = $entry['SNMP_ID'] ?? null;
@@ -171,7 +173,7 @@ function loadFromJSON(?string $raw): array {
     };
     if (isset($parsed['controllers']) && is_array($parsed['controllers'])) {
         foreach ($parsed['controllers'] as $k => $entry) {
-            if (is_string($k) && $validCtrlKey($k)) {
+            if (is_string($k) && $validCatalogKey($k)) {
                 $e = $loadEntry($entry); if ($e !== null) $ctrl[$k] = $e;
             }
         }
@@ -179,7 +181,17 @@ function loadFromJSON(?string $raw): array {
     if (isset($parsed['modules']) && is_array($parsed['modules'])) {
         foreach ($parsed['modules'] as $k => $entry) {
             $k = (string)$k;
-            if ($validModKey($k)) { $e = $loadEntry($entry); if ($e !== null) $mod[$k] = $e; }
+            if ($validCatalogKey($k)) {
+                $e = $loadEntry($entry);
+                $pi = is_array($entry) ? ($entry['process_image'] ?? null) : null;
+                $signatureValid = is_array($pi);
+                foreach (['analog_in','analog_out','digital_in','digital_out'] as $field) {
+                    $signatureValid = $signatureValid && isset($pi[$field]) && is_int($pi[$field]) && $pi[$field] >= 0;
+                }
+                if ($e !== null && $k === $e['name'] && isset($entry['type']) && is_int($entry['type']) && $entry['type'] >= 0 && $signatureValid) {
+                    $mod[$k] = $e;
+                }
+            }
         }
     }
     return [$ctrl, $mod];
@@ -188,11 +200,15 @@ $ok = true;
 // Absent file → empty maps.
 [$c, $m] = loadFromJSON(null);
 if ($c !== [] || $m !== []) { echo "FAIL: absent should give empty maps\n"; $ok = false; }
-// Valid v1.1 JSON → populated.
-$validJson = '{"controllers":{"750-880":{"SNMP_ID":"750-880","name":"750-880","img":"wago_0750-0880.svg","description":"ctrl"}},"modules":{"1":{"SNMP_ID":"750-4xx","name":"750-4xx","img":"wago_0750-xxxx_modul.svg","description":"mod"}}}';
+// Valid v2.0 JSON with article-keyed module and complete signature → populated.
+$validJson = '{"controllers":{"750-880":{"SNMP_ID":"750-880","name":"750-880","img":"wago_0750-0880.svg","description":"ctrl"}},"modules":{"750-400":{"SNMP_ID":"750-4xx","name":"750-400","type":1,"img":"wago_0750-0400.svg","description":"mod","process_image":{"analog_in":0,"analog_out":0,"digital_in":2,"digital_out":0}}}}';
 [$c, $m] = loadFromJSON($validJson);
-if (!isset($c['750-880']) || !isset($m['1'])) { echo "FAIL: valid v1.1 JSON not parsed\n"; $ok = false; }
-if ($c['750-880']['SNMP_ID'] !== '750-880') { echo "FAIL: controller SNMP_ID wrong\n"; $ok = false; }
+if (!isset($c['750-880']) || !isset($m['750-400'])) { echo "FAIL: valid v2.0 JSON not parsed (c=" . count($c) . " m=" . count($m) . ")\n"; $ok = false; }
+if (isset($c['750-880']) && $c['750-880']['SNMP_ID'] !== '750-880') { echo "FAIL: controller SNMP_ID wrong\n"; $ok = false; }
+// Legacy slot-keyed configuration must not be interpreted as a v2.0 article catalog.
+$slotKey = '{"modules":{"1":{"SNMP_ID":"750-4xx","name":"750-400","img":"wago_0750-0400.svg","description":"mod"}}}';
+[, $m] = loadFromJSON($slotKey);
+if ($m !== []) { echo "FAIL: legacy slot key must be rejected\n"; $ok = false; }
 // Malformed JSON → empty maps (fail safe).
 [$c, $m] = loadFromJSON('{not valid json}');
 if ($c !== [] || $m !== []) { echo "FAIL: malformed should give empty maps\n"; $ok = false; }
@@ -206,10 +222,6 @@ if ($c !== [] || $m !== []) { echo "FAIL: wrong-type sections should give empty 
 $oldJson = '{"controllers":{"750-880":"wago_0750-0880.svg"},"modules":{"750-511":"wago_0750-0511.svg"}}';
 [$c, $m] = loadFromJSON($oldJson);
 if ($c !== [] || $m !== []) { echo "FAIL: old string-value schema should give empty maps\n"; $ok = false; }
-// Module key "0" rejected (not 1-based).
-$zeroKey = '{"modules":{"0":{"SNMP_ID":"x","name":"x","img":"a.svg","description":"x"}}}';
-[, $m] = loadFromJSON($zeroKey);
-if ($m !== []) { echo "FAIL: module key 0 should be rejected\n"; $ok = false; }
 echo $ok ? "OK\n" : "FAILURES\n";`
 
 	if got := runPhp(t, php, phpLogic); got != "OK" {
@@ -277,19 +289,20 @@ echo $ok ? "OK\n" : "FAILURES\n";`
 	}
 }
 
-// TestFallbackHintContent verifies that the $moduleHint and $controllerHint PHP closures
-// produce accurate v1.1-schema guidance: slot-keyed modules["N"] reference, controllers
-// entry reference, the live SNMP_ID, images path, json filename, and HTML escaping.
+// TestFallbackHintContent verifies that the hint PHP closures produce accurate v2.0
+// guidance: catalog-based (not slot-specific) module hint, controller hint, images path,
+// json filename, and HTML escaping.
 func TestFallbackHintContent(t *testing.T) {
 	php := phpSkip(t)
 
 	phpLogic := `<?php
 $e = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-$moduleHint = static function(int $slot, string $liveSnmpId) use ($e): string {
+// v2.0: hint references the catalog (not a specific slot).
+$moduleCatalogHint = static function(string $liveSnmpId) use ($e): string {
     if ($liveSnmpId === '') return '';
-    return '<br>To customise: copy .svg to /var/lib/zabbix/wago_kbus/images/'
-        . ' and update ' . $e('modules["' . $slot . '"]')
-        . ' in custom_svg_map.json with SNMP_ID ' . $e('"' . $liveSnmpId . '"') . '.';
+    return '<br>To add SVG: copy .svg to /var/lib/zabbix/wago_kbus/images/'
+        . ' and add a modules entry in custom_svg_map.json for SNMP_ID '
+        . $e('"' . $liveSnmpId . '"') . '.';
 };
 $controllerHint = static function(string $liveSnmpId) use ($e): string {
     if ($liveSnmpId === '') return '';
@@ -299,25 +312,27 @@ $controllerHint = static function(string $liveSnmpId) use ($e): string {
 };
 $ok = true;
 // Empty SNMP_ID → no hint.
-if ($moduleHint(3, '') !== '') {
-    echo "FAIL: moduleHint empty SNMP_ID should produce empty hint\n"; $ok = false;
+if ($moduleCatalogHint('') !== '') {
+    echo "FAIL: moduleCatalogHint empty SNMP_ID should produce empty hint\n"; $ok = false;
 }
 if ($controllerHint('') !== '') {
     echo "FAIL: controllerHint empty SNMP_ID should produce empty hint\n"; $ok = false;
 }
-// moduleHint contains slot number, modules["N"], live SNMP_ID, images path, json filename.
-$hint = $moduleHint(5, '750-999');
-if (strpos($hint, 'modules[&quot;5&quot;]') === false && strpos($hint, 'modules["5"]') === false) {
-    echo "FAIL: moduleHint missing slot-keyed modules reference\n"; $ok = false;
-}
+// moduleCatalogHint: must contain SNMP_ID, images path, json filename.
+// Must NOT contain slot-specific keys like modules["5"].
+$hint = $moduleCatalogHint('750-999');
 if (strpos($hint, '750-999') === false) {
-    echo "FAIL: moduleHint missing live SNMP_ID\n"; $ok = false;
+    echo "FAIL: moduleCatalogHint missing live SNMP_ID\n"; $ok = false;
 }
 if (strpos($hint, '/var/lib/zabbix/wago_kbus/images/') === false) {
-    echo "FAIL: moduleHint missing images path\n"; $ok = false;
+    echo "FAIL: moduleCatalogHint missing images path\n"; $ok = false;
 }
 if (strpos($hint, 'custom_svg_map.json') === false) {
-    echo "FAIL: moduleHint missing map filename\n"; $ok = false;
+    echo "FAIL: moduleCatalogHint missing map filename\n"; $ok = false;
+}
+// v2.0: no slot number should appear in module hint.
+if (preg_match('/modules\["?\d+"?\]/', $hint)) {
+    echo "FAIL: moduleCatalogHint must not reference a slot-specific modules key\n"; $ok = false;
 }
 // controllerHint contains 'controllers', live SNMP_ID, images path, json filename.
 $hint2 = $controllerHint('750-881');
@@ -334,9 +349,9 @@ if (strpos($hint2, 'custom_svg_map.json') === false) {
     echo "FAIL: controllerHint missing map filename\n"; $ok = false;
 }
 // HTML-special chars in SNMP_ID are escaped (XSS guard).
-$hint3 = $moduleHint(1, '<script>alert(1)</script>');
+$hint3 = $moduleCatalogHint('<script>alert(1)</script>');
 if (strpos($hint3, '<script>') !== false) {
-    echo "FAIL: moduleHint did not escape HTML in SNMP_ID\n"; $ok = false;
+    echo "FAIL: moduleCatalogHint did not escape HTML in SNMP_ID\n"; $ok = false;
 }
 $hint4 = $controllerHint('<script>xss</script>');
 if (strpos($hint4, '<script>') !== false) {
@@ -350,8 +365,10 @@ echo $ok ? "OK\n" : "FAILURES\n";`
 }
 
 // TestInstallerCustomDataPersistence verifies that install_widget.sh:
-//   (a) creates custom data dirs and starter JSON on first run,
-//   (b) never overwrites or deletes them on a second run.
+//
+//	(a) creates custom data dirs and starter JSON on first run,
+//	(b) never overwrites or deletes them on a second run.
+//
 // Uses WAGO_KBUS_DATA_DIR to redirect custom data to a temp directory so the
 // test does not require root or write to /var/lib.
 func TestInstallerCustomDataPersistence(t *testing.T) {
@@ -405,10 +422,10 @@ func TestInstallerCustomDataPersistence(t *testing.T) {
 	if _, ok := starter["modules"]; !ok {
 		t.Error("starter JSON missing 'modules' key")
 	}
-	// Starter must be the 19-slot default (seeded from default_svg_map.json).
+	// v2.0 starter: 6-article catalog (not the old 19-slot installation inventory).
 	if mods, ok := starter["modules"].(map[string]any); ok {
-		if len(mods) != 19 {
-			t.Errorf("starter JSON has %d module entries, want 19", len(mods))
+		if len(mods) != 6 {
+			t.Errorf("starter JSON has %d module entries, want 6 (v2.0 article catalog)", len(mods))
 		}
 	} else {
 		t.Error("starter JSON 'modules' is not an object")
@@ -460,5 +477,110 @@ func TestInstallerCustomDataPersistence(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(widgetDest, "wago_kbus")); err == nil {
 		t.Error("nested wago_kbus/wago_kbus directory detected after second install")
+	}
+}
+
+func TestInstallerRejectsPersistentSymlinkDestinations(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "scripts", "install_widget.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("data directory", func(t *testing.T) {
+		root := t.TempDir()
+		modulesDir := filepath.Join(root, "modules")
+		outside := filepath.Join(root, "outside")
+		dataDir := filepath.Join(root, "data")
+		if err := os.MkdirAll(modulesDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(outside, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, dataDir); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", script, "--zabbix-modules-dir", modulesDir)
+		cmd.Env = append(os.Environ(), "WAGO_KBUS_DATA_DIR="+dataDir)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			t.Fatalf("installer accepted symlinked data directory:\n%s", out)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "custom_svg_map.json")); !os.IsNotExist(err) {
+			t.Fatalf("installer wrote through data-directory symlink: %v", err)
+		}
+	})
+
+	for _, target := range []string{"images", "custom_svg_map.json", "images/wago_0750-0880.svg"} {
+		t.Run(target, func(t *testing.T) {
+			root := t.TempDir()
+			modulesDir := filepath.Join(root, "modules")
+			dataDir := filepath.Join(root, "data")
+			outside := filepath.Join(root, "outside")
+			if err := os.MkdirAll(modulesDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(dataDir, "images"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if target == "images" {
+				if err := os.Remove(filepath.Join(dataDir, "images")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(outside, 0755); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(outside, []byte("sentinel"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(dataDir, target)); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", script, "--zabbix-modules-dir", modulesDir)
+			cmd.Env = append(os.Environ(), "WAGO_KBUS_DATA_DIR="+dataDir)
+			if out, err := cmd.CombinedOutput(); err == nil {
+				t.Fatalf("installer accepted symlinked persistent target %s:\n%s", target, out)
+			}
+		})
+	}
+}
+
+func TestInstallerRejectsOverlappingPersistentPath(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "scripts", "install_widget.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relation := range []string{"equal", "nested", "ancestor"} {
+		t.Run(relation, func(t *testing.T) {
+			root := t.TempDir()
+			modulesDir := filepath.Join(root, "modules")
+			widgetDest := filepath.Join(modulesDir, "wago_kbus")
+			dataDir := widgetDest
+			switch relation {
+			case "nested":
+				dataDir = filepath.Join(widgetDest, "site-data")
+			case "ancestor":
+				dataDir = modulesDir
+			}
+			if err := os.MkdirAll(dataDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := filepath.Join(dataDir, "custom_svg_map.json")
+			const marker = "persistent-sentinel"
+			if err := os.WriteFile(sentinel, []byte(marker), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", script, "--zabbix-modules-dir", modulesDir)
+			cmd.Env = append(os.Environ(), "WAGO_KBUS_DATA_DIR="+dataDir)
+			if out, err := cmd.CombinedOutput(); err == nil {
+				t.Fatalf("installer accepted %s persistent/widget overlap:\n%s", relation, out)
+			}
+			content, err := os.ReadFile(sentinel)
+			if err != nil {
+				t.Fatalf("sentinel deleted for %s overlap: %v", relation, err)
+			}
+			if string(content) != marker {
+				t.Fatalf("sentinel changed for %s overlap: %q", relation, content)
+			}
+		})
 	}
 }

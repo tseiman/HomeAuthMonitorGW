@@ -25,6 +25,50 @@
     display: block;
     flex-shrink: 0;
     line-height: 0;
+    border-radius: 4px;
+}
+
+/* Identification gaps are configuration/data warnings, not hardware faults. */
+.wago-kbus-item--warning::after,
+.wago-kbus-item--fault::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+.wago-kbus-item--warning::after {
+    background: rgba(255, 179, 0, 0.15);
+    box-shadow: inset 0 0 0 2px rgba(230, 140, 0, 0.72);
+}
+
+/* Red is reserved for a verified non-zero global WAGO K-bus diagnostic. */
+.wago-kbus-item--fault::after {
+    background: rgba(204, 0, 0, 0.14);
+    box-shadow: inset 0 0 0 2px rgba(204, 0, 0, 0.82);
+}
+
+.wago-kbus-global-fault,
+.wago-kbus-inventory-warning {
+    flex: 0 0 auto;
+    margin: 4px;
+    padding: 6px 9px;
+    border-radius: 4px;
+    font: 12px/1.35 sans-serif;
+}
+
+.wago-kbus-global-fault {
+    color: #8b0000;
+    background: rgba(204, 0, 0, 0.14);
+    border: 1px solid rgba(204, 0, 0, 0.55);
+}
+
+.wago-kbus-inventory-warning {
+    color: #6b4600;
+    background: rgba(255, 179, 0, 0.16);
+    border: 1px solid rgba(230, 140, 0, 0.52);
 }
 
 /* Adjacent modules share a border line, matching the test.html reference design. */

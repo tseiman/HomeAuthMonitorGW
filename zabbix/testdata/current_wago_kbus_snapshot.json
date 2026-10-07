@@ -1,0 +1,326 @@
+{
+  "wago-test": {
+    "name": "wago-750-880-snmp3",
+    "driver": "snmp",
+    "available": true,
+    "stale": false,
+    "metrics": [
+      {
+        "name": "wioArticleName",
+        "value": "750-880",
+        "value_type": "string"
+      },
+      {
+        "name": "wioErrorGroup",
+        "value": 0,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioErrorCode",
+        "value": 0,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioErrorArgument",
+        "value": 0,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioErrorDescription",
+        "value": "Coupler running, OK",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModulCount",
+        "value": 19,
+        "value_type": "integer",
+        "unit": "modules"
+      },
+      {
+        "name": "wioModuleNumber[1]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[2]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[3]",
+        "value": 3,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[4]",
+        "value": 4,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[5]",
+        "value": 5,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[6]",
+        "value": 6,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[7]",
+        "value": 7,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[8]",
+        "value": 8,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[9]",
+        "value": 9,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[10]",
+        "value": 10,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[11]",
+        "value": 11,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[12]",
+        "value": 12,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[13]",
+        "value": 13,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[14]",
+        "value": 14,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[15]",
+        "value": 15,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[16]",
+        "value": 16,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[17]",
+        "value": 17,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[18]",
+        "value": 18,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleNumber[19]",
+        "value": 19,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleName[1]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[2]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[3]",
+        "value": "750-511/000-002",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[4]",
+        "value": "750-511/000-002",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[5]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[6]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[7]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[8]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[9]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[10]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[11]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[12]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[13]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[14]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[15]",
+        "value": "750-5xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[16]",
+        "value": "750-652/000-000",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[17]",
+        "value": "750-652/000-000",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[18]",
+        "value": "750-652/000-000",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleName[19]",
+        "value": "750-4xx",
+        "value_type": "string"
+      },
+      {
+        "name": "wioModuleType[1]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[2]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[3]",
+        "value": 167,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[4]",
+        "value": 167,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[5]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[6]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[7]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[8]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[9]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[10]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[11]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[12]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[13]",
+        "value": 1,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[14]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[15]",
+        "value": 2,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[16]",
+        "value": 163,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[17]",
+        "value": 163,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[18]",
+        "value": 163,
+        "value_type": "integer"
+      },
+      {
+        "name": "wioModuleType[19]",
+        "value": 1,
+        "value_type": "integer"
+      }
+    ]
+  }
+}

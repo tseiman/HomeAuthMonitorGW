@@ -431,70 +431,66 @@ object types when re-importing over an existing version of the template.  The
 > being silently bound to the template's internal host name on deployments where the host was
 > imported under a different name.
 
-#### Controller and module identification (JSON-driven)
+#### Automatic controller and module identification
 
-Every controller display name, expected SNMP article ID, SVG image filename, and description
-comes from `custom_svg_map.json` at runtime.  There are no hard-coded product tables in the
-PHP source.
+The physical module strip is created entirely from the runtime metrics in
+`automation.gateway.wago.kbus_layout`. The widget does not read physical slots from
+`custom_svg_map.json`:
 
-**Controller matching:** the widget reads `wioArticleName` (OID `1.3.6.1.4.1.13576.10.1.1.0`)
-from the live layout JSON and performs a strict case-sensitive equality match against the
-`SNMP_ID` field of each configured controller entry.  The first match wins.  If no entry
-matches or `wioArticleName` was not collected, the generic fallback SVG
-(`wago_0750-xxxx_controller.svg`) is used and a tooltip hint is shown.
+1. the metric index in `wioModuleNumber[N]`, `wioModuleName[N]`, `wioModuleType[N]`, and the
+   four process-image metrics associates values from the same inventory row;
+2. `wioModuleNumber[N]` supplies the physical slot number;
+3. modules are sorted numerically by that reported slot, independently of metric-array order;
+4. `wioModulCount`, unique slots, contiguous `1..count` numbering, module names, and module
+   types are checked separately from article identification.
 
-**Module matching** uses a two-step check:
+`custom_svg_map.json` is a reusable module catalog. Each known article appears once, regardless
+of where or how often it is installed. Candidate selection is strict and increasingly specific:
 
-1. **Count guard:** if the number of entries in the `modules` section of `custom_svg_map.json`
-   differs from the number of live K-bus modules, **all** modules fall back to the generic SVG.
-   This prevents silent misidentification when hardware changes.  The controller is resolved
-   independently and is not affected by this check.
-2. **Slot + SNMP_ID match:** for each live module at slot N, the widget looks up key `"N"` in
-   the JSON `modules` section and compares its `SNMP_ID` to the live article string.  Match is
-   strict literal equality — `"750-4xx"` in the JSON matches live `"750-4xx"` exactly.  A
-   mismatch on any individual slot makes only that slot fall back; others are unaffected.
+1. exact `SNMP_ID == wioModuleName[N]`;
+2. exact catalog `type == wioModuleType[N]`;
+3. equality of every available process-image bit length (`analog_in`, `analog_out`,
+   `digital_in`, and `digital_out`).
 
-On fallback, the live article and type code are shown in the hover tooltip along with a neutral
-hint about adding an entry.  No banner or warning appears on the main widget rail.
+Missing process-image metrics remain `null`; they are never converted to zero and never create a
+false mismatch. An article is shown only when exactly one catalog candidate remains. Multiple
+candidates produce `ambiguous`; no candidate produces `unknown`; missing or structurally invalid
+inventory produces `data-incomplete`. These states use a transparent yellow/orange wrapper and
+are not hardware faults. A non-zero `wioErrorGroup` or `wioErrorCode` produces a red global
+controller/K-bus fault. `wioErrorArgument` is displayed only as global diagnostic context and is
+not interpreted as a physical slot.
+
+The process-image values are **bit lengths used as an identification signature**. They are not a
+generic count of physical channels: for example, a 750-652 serial module has 192 input and 192
+output process-image bits.
+
+Controller matching remains catalog-based and uses exact equality between `wioArticleName` and
+the controller entry's `SNMP_ID`.
 
 #### Custom SVG assets — persistent, update-safe
 
-Custom SVG files and their article mappings live under `/var/lib/zabbix/wago_kbus/`, which
-is **completely separate from the package-managed module tree** at
-`/usr/share/zabbix/ui/modules/wago_kbus/`.  Running `install_widget.sh` to update the widget
-never touches `/var/lib/zabbix/wago_kbus/` — custom assets survive every widget update.
+Runtime catalog data lives outside the package-managed module tree:
 
-> **FHS rationale:** `/var/lib` is the standard Linux location for persistent, mutable
-> application state.  `/usr/share` is for read-only, package-managed files.  Keeping custom
-> data in `/var/lib` gives a clean separation: the widget vendor manages `/usr/share`, the
-> site admin manages `/var/lib`.
-
-**Directory layout created automatically by `install_widget.sh`:**
-
-```
+```text
 /var/lib/zabbix/wago_kbus/
-├── custom_svg_map.json    # slot/controller → entry mapping (root:www-data 640)
-└── images/                # SVG files                       (root:www-data 750)
-    ├── wago_0750-0880.svg          (shipped: controller 750-880)
-    ├── wago_0750-0511.svg          (shipped: module 750-511)
-    ├── wago_0750-xxxx_controller.svg (shipped: generic controller fallback)
-    ├── wago_0750-xxxx_modul.svg    (shipped: generic module fallback)
-    └── *.svg                       (site-local additions)
+├── custom_svg_map.json    # reusable controller/module catalog (root:www-data 640)
+└── images/                # catalog and fallback SVGs          (root:www-data 750)
 ```
 
-Permissions are set root-owned and group-readable (not group-writable) so the web server
-process can read assets but cannot modify its own configuration.  If your Zabbix frontend
-runs under a group other than `www-data`, pass `--web-group GROUP` to `install_widget.sh`.
+The installer creates these paths and seeds missing files, but never overwrites an existing
+`custom_svg_map.json` or destination SVG. This preserves site-local changes across widget
+updates. If the frontend group is not `www-data`, pass `--web-group GROUP`.
+When run as root, every existing destination-path component must be owned by uid 0 and must
+not be group- or world-writable. Symlink components are rejected, and the persistent path
+must not equal, contain, or be contained by the replaceable widget directory. These fail-closed
+checks keep privileged copy, ownership, and mode changes inside the intended Zabbix paths.
 
-On first install, `custom_svg_map.json` is seeded from `default_svg_map.json` (19-slot
-reference inventory for the HomeAuthMonitorGW reference WAGO 750-880 deployment; see
-`zabbix/modules/wago_kbus/default_svg_map.json`).  On subsequent installs the file is
-**never overwritten** — edit it freely and it will survive every widget update.
+On a fresh installation the catalog is seeded from
+`zabbix/modules/wago_kbus/default_svg_map.json`. Every regular, non-symlink `*.svg` in
+`assets/img/` and `catalog_images/` is copied when its destination is absent. The
+`catalog_images/` directory is the versioned drop-in location for additional licensed SVGs.
 
-The four shipped SVG images are copied to the `images/` directory on first install
-(only when each destination file is absent).  Existing files are never overwritten.
-
-**`custom_svg_map.json` schema (v1.1):**
+**`custom_svg_map.json` schema (v2.0):**
 
 ```json
 {
@@ -503,99 +499,62 @@ The four shipped SVG images are copied to the `images/` directory on first insta
       "SNMP_ID": "750-880",
       "name": "750-880",
       "img": "wago_0750-0880.svg",
-      "description": "WAGO 750-880 Ethernet controller; 100 Mbit/s; supports IEC 61131-3"
+      "description": "WAGO 750-880 Ethernet controller"
     }
   },
   "modules": {
-    "1": {
+    "750-1405": {
       "name": "750-1405",
       "SNMP_ID": "750-4xx",
-      "img": "wago_0750-xxxx_modul.svg",
-      "description": "2 pulse-width outputs; DC 24 V; 0.1 A; 250 Hz"
-    },
-    "2": {
-      "name": "750-511/000-002",
-      "SNMP_ID": "750-511/000-002",
-      "img": "wago_0750-0511.svg",
-      "description": "Serial interface RS232/RS485"
+      "type": 1,
+      "img": "wago_0750-1405.svg",
+      "description": "16-Channel-Digital input; DC 24 V; 3 ms",
+      "process_image": {
+        "analog_in": 0,
+        "analog_out": 0,
+        "digital_in": 16,
+        "digital_out": 0
+      }
     }
   }
 }
 ```
 
 Schema rules:
-- `controllers` keys: the SNMP article string (starts with digit; alphanumeric/slash/hyphen).
-- `modules` keys: 1-based slot number strings matching live K-bus slot positions (`"1"`, `"2"`, …).
-- Every entry must have string fields `SNMP_ID`, `name`, `img`, and `description`.
-  Missing or non-string fields cause the entry to be silently skipped.
-- `img` must be a basename (no path separators) ending in `.svg`; the file must exist in the
-  `images/` directory as a non-symlink readable regular file.  If the file is absent, the entry
-  is still valid and the name/description are shown, but the generic fallback SVG is displayed.
-- Malformed JSON, wrong-type sections, and symlinks are silently ignored; the widget falls back
-  to generic SVGs without breaking.
 
-**Migrating from v1.0 (old string-value schema):**
+- Module keys are article names and must equal the entry's `name`; numeric physical-slot keys are
+  not accepted.
+- Every module requires `SNMP_ID`, non-negative integer `type`, `img`, `description`, and all four
+  non-negative integer process-image bit lengths.
+- `img` is a basename ending in `.svg`. Symlinks, path traversal, and files outside the persistent
+  images directory are rejected.
+- An absent image does not invalidate identification; the generic SVG is shown and the tooltip
+  explains that the catalog image is unavailable.
+- Adding support for an article requires only one catalog entry and one SVG. No slot list or widget
+  configuration change is required.
 
-The v1.0 schema used string filenames as entry values:
-```json
-{ "controllers": {"750-880": "wago_0750-0880.svg"}, "modules": {"750-511": "wago_0750-0511.svg"} }
-```
-The installer **never overwrites an existing `custom_svg_map.json`**, so a v1.0 file is safe
-and will remain in place.  With a v1.0 file the widget will silently skip all entries (string
-values fail the object validation) and fall back to generic SVGs for all slots.  To migrate:
-1. Back up the existing file.
-2. Replace it with the new format (see `default_svg_map.json` as a starting point).
-3. Adjust `SNMP_ID`, `name`, `img`, and `description` fields to match your hardware.
+Existing slot-keyed v1.1 files are deliberately preserved by the installer but are not valid v2.0
+catalogs. Before updating, back them up and replace their repeated slot entries with one entry per
+article, using `default_svg_map.json` as the starting point.
 
-Note that modules keys changed from article strings to 1-based slot numbers.  Verify each
-slot's live SNMP_ID by inspecting the `automation.gateway.wago.kbus_layout` item history.
-
-**Fallback hint in tooltips:** when a controller or module uses the generic fallback SVG
-(because no specific SVG is configured), its hover tooltip appends a brief hint showing the
-normalized key to add and the paths to use.  The hint is visible on hover only and does not
-appear on the main rail.
-
-##### Installing the custom data directory
-
-`install_widget.sh` creates the layout on first install only (seeds the 19-slot default JSON
-and copies the four shipped SVG images; subsequent runs leave existing files untouched):
+##### Installing or extending the catalog
 
 ```bash
 sudo ./scripts/install_widget.sh
-# For a non-www-data frontend group:
-sudo ./scripts/install_widget.sh --web-group apache
-```
 
-##### Adding a custom SVG
+# Option A: commit a licensed SVG to the versioned drop-in directory, then reinstall:
+cp wago_0750-1405.svg zabbix/modules/wago_kbus/catalog_images/
+sudo ./scripts/install_widget.sh
 
-```bash
-# 1. Copy the SVG to the images directory:
-sudo cp wago_custom_881.svg /var/lib/zabbix/wago_kbus/images/
-sudo chown root:www-data /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
-sudo chmod 640 /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
-
-# 2. Register it in the map (edit as root):
+# Option B: install a site-local SVG directly:
+sudo cp wago_0750-1405.svg /var/lib/zabbix/wago_kbus/images/
+sudo chown root:www-data /var/lib/zabbix/wago_kbus/images/wago_0750-1405.svg
+sudo chmod 640 /var/lib/zabbix/wago_kbus/images/wago_0750-1405.svg
 sudo nano /var/lib/zabbix/wago_kbus/custom_svg_map.json
-# Under "controllers" add: "750-881": {"SNMP_ID":"750-881","name":"750-881","img":"wago_custom_881.svg","description":"Custom controller"}
-
-# 3. No widget reinstall or Zabbix restart needed.
-#    The widget reads the map on every page render.
 ```
 
-##### Updating a custom SVG
-
-Replace the file in place.  The map entry does not need to change.
-
-```bash
-sudo cp new_wago_custom_881.svg /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
-sudo chown root:www-data /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
-sudo chmod 640 /var/lib/zabbix/wago_kbus/images/wago_custom_881.svg
-```
-
-##### Removing a custom SVG
-
-Remove the key from `custom_svg_map.json` (the file itself can stay or be deleted).  The
-widget will fall back to the built-in SVG for that article.
+The widget reads the catalog on every page render; adding an entry or replacing an SVG requires no
+Zabbix restart. Only use artwork whose provenance and redistribution licence are verified.
 
 ##### Backup and restore
 
@@ -643,17 +602,19 @@ your site.  Site-specific SVGs belong in the custom asset dir above.
 
    # Convert to SVG:
    python3 tooling/qet_to_svg/qet_to_svg.py wago_0750-NNNN.elmt \
-     -o zabbix/modules/wago_kbus/assets/img/ --force
+     -o zabbix/modules/wago_kbus/catalog_images/ --force
    ```
 
-2. Add the image file to `zabbix/modules/wago_kbus/assets/img/` and register it in
+2. Add normal module images to `zabbix/modules/wago_kbus/catalog_images/` (the existing
+   controller/fallback assets remain in `assets/img/`) and register the article once in
    `zabbix/modules/wago_kbus/default_svg_map.json` under the appropriate controller or
-   module slot entry (set `"img"` to the new filename).
+   article-keyed module entry (set `"img"` to the new filename and provide the complete
+   `SNMP_ID`, `type`, and `process_image` signature).
 
 3. Re-install the widget: `sudo ./scripts/install_widget.sh`.
    The script replaces the installed directory atomically; re-running it is safe and idempotent.
 
-5. Run the widget tests to confirm no regressions:
+4. Run the widget tests to confirm no regressions:
    ```bash
    go test ./zabbix/...
    ```

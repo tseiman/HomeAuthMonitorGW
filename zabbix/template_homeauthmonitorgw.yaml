@@ -551,7 +551,7 @@ zabbix_export:
           history: '90d'
           trends: '0'
           value_type: TEXT
-          description: 'Structured JSON consumed by the wago_kbus dashboard widget. Contains the controller article number (from wioArticleName) and the ordered K-bus module list. Used by the widget only; do not use as a text inventory replacement.'
+          description: 'Structured runtime K-bus inventory consumed by the wago_kbus dashboard widget. Physical slots come only from wioModuleNumber[N]. Process-image lengths are bit lengths and remain null when unavailable. Inventory consistency and global WAGO diagnostics are included separately from module identification.'
           master_item:
             key: automation.gateway.snapshot
           preprocessing:
@@ -561,33 +561,161 @@ zabbix_export:
                   var snapshot = JSON.parse(value);
                   var source = snapshot['{$WAGO_SOURCE}'];
                   if (!source || !Array.isArray(source.metrics)) throw 'WAGO source not found';
+
                   var controllerArticle = null;
-                  var slots = {};
+                  var reportedCount = null;
+                  var diagnostics = {
+                      error_group: null,
+                      error_code: null,
+                      error_argument: null,
+                      error_description: null
+                  };
+                  var totals = {
+                      analog_in: null,
+                      analog_out: null,
+                      digital_in: null,
+                      digital_out: null
+                  };
+                  var records = {};
+                  var seenModuleFields = {};
+                  var duplicateModuleFields = false;
+                  var fieldMap = {
+                      Number: 'number',
+                      Name: 'name',
+                      Type: 'type',
+                      AnalogInLength: 'analog_in',
+                      AnalogOutLength: 'analog_out',
+                      DigitalInLength: 'digital_in',
+                      DigitalOutLength: 'digital_out'
+                  };
+                  var totalMap = {
+                      wioAnalogInLength: 'analog_in',
+                      wioAnalogOutLength: 'analog_out',
+                      wioDigitalInLength: 'digital_in',
+                      wioDigitalOutLength: 'digital_out'
+                  };
+                  var diagnosticMap = {
+                      wioErrorGroup: 'error_group',
+                      wioErrorCode: 'error_code',
+                      wioErrorArgument: 'error_argument',
+                      wioErrorDescription: 'error_description'
+                  };
+
+                  function nonnegativeInteger(value) {
+                      if (value == null || (typeof value === 'string' && value.trim() === '')) return null;
+                      var number = Number(value);
+                      return isFinite(number) && number >= 0 && Math.floor(number) === number ? number : null;
+                  }
+
+                  function finiteNumber(value) {
+                      if (value == null || (typeof value === 'string' && value.trim() === '')) return null;
+                      var number = Number(value);
+                      return isFinite(number) ? number : null;
+                  }
+
                   source.metrics.forEach(function (metric) {
+                      if (!metric || typeof metric.name !== 'string') return;
                       if (metric.name === 'wioArticleName') {
-                          controllerArticle = String(metric.value);
+                          controllerArticle = metric.value == null ? null : String(metric.value);
+                          return;
                       }
-                      var match = /^wioModule(Number|Name|Type)\[(\d+)\]$/.exec(metric.name);
+                      if (metric.name === 'wioModulCount') {
+                          reportedCount = nonnegativeInteger(metric.value);
+                          return;
+                      }
+                      if (Object.prototype.hasOwnProperty.call(totalMap, metric.name)) {
+                          totals[totalMap[metric.name]] = nonnegativeInteger(metric.value);
+                          return;
+                      }
+                      if (Object.prototype.hasOwnProperty.call(diagnosticMap, metric.name)) {
+                          diagnostics[diagnosticMap[metric.name]] = metric.name === 'wioErrorDescription'
+                              ? (metric.value == null ? null : String(metric.value))
+                              : finiteNumber(metric.value);
+                          return;
+                      }
+
+                      var match = /^wioModule(Number|Name|Type|AnalogInLength|AnalogOutLength|DigitalInLength|DigitalOutLength)\[(\d+)\]$/.exec(metric.name);
                       if (!match) return;
                       var index = Number(match[2]);
-                      if (!slots[index]) slots[index] = {slot: index};
-                      slots[index][match[1].toLowerCase()] = metric.value;
+                      if (!records[index]) {
+                          records[index] = {
+                              index: index,
+                              number: null,
+                              name: null,
+                              type: null,
+                              analog_in: null,
+                              analog_out: null,
+                              digital_in: null,
+                              digital_out: null
+                          };
+                      }
+                      var field = fieldMap[match[1]];
+                      var seenKey = index + ':' + field;
+                      if (Object.prototype.hasOwnProperty.call(seenModuleFields, seenKey)) {
+                          duplicateModuleFields = true;
+                      }
+                      seenModuleFields[seenKey] = true;
+                      if (field === 'name') {
+                          records[index][field] = metric.value == null ? null : String(metric.value);
+                      } else {
+                          records[index][field] = nonnegativeInteger(metric.value);
+                      }
                   });
-                  var modules = Object.keys(slots)
-                      .map(function (i) { return slots[i]; })
-                      .filter(function (m) { return m.name != null; });
-                  modules.sort(function (a, b) {
-                      return Number(a.number || a.slot) - Number(b.number || b.slot);
+
+                  var modules = Object.keys(records).map(function (index) {
+                      var record = records[index];
+                      return {
+                          slot: record.number,
+                          article: record.name,
+                          type: record.type,
+                          inventory_complete: record.number != null && record.number > 0 && record.name != null && record.name.trim() !== '' && record.type != null,
+                          process_image: {
+                              analog_in: record.analog_in,
+                              analog_out: record.analog_out,
+                              digital_in: record.digital_in,
+                              digital_out: record.digital_out
+                          }
+                      };
                   });
+                  modules.sort(function (left, right) {
+                      if (left.slot == null) return right.slot == null ? 0 : 1;
+                      if (right.slot == null) return -1;
+                      return left.slot - right.slot;
+                  });
+
+                  var seen = {};
+                  var duplicateSlots = false;
+                  modules.forEach(function (module) {
+                      if (module.slot == null) return;
+                      if (seen[module.slot]) duplicateSlots = true;
+                      seen[module.slot] = true;
+                  });
+                  var countMismatch = reportedCount == null || reportedCount !== modules.length;
+                  var contiguous = reportedCount != null && modules.length === reportedCount && !duplicateSlots;
+                  if (contiguous) {
+                      for (var slot = 1; slot <= reportedCount; slot++) {
+                          if (!seen[slot]) {
+                              contiguous = false;
+                              break;
+                          }
+                      }
+                  }
+                  var entriesComplete = modules.every(function (module) { return module.inventory_complete; });
+
                   return JSON.stringify({
                       controller: controllerArticle,
-                      modules: modules.map(function (m) {
-                          return {
-                              slot: Number(m.number || m.slot),
-                              article: String(m.name),
-                              type: m.type == null ? null : Number(m.type)
-                          };
-                      })
+                      reported_count: reportedCount,
+                      count_mismatch: countMismatch,
+                      duplicate_slots: duplicateSlots,
+                      duplicate_module_fields: duplicateModuleFields,
+                      inventory_contiguous: contiguous,
+                      inventory_valid: !countMismatch && !duplicateSlots && !duplicateModuleFields && contiguous && entriesComplete,
+                      process_image_totals: totals,
+                      error_group: diagnostics.error_group,
+                      error_code: diagnostics.error_code,
+                      error_argument: diagnostics.error_argument,
+                      error_description: diagnostics.error_description,
+                      modules: modules
                   });
           tags:
             - tag: component
