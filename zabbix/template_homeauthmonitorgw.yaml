@@ -43,11 +43,14 @@ zabbix_export:
                       if (!/^[A-Za-z0-9._-]{1,64}$/.test(sourceName) || !source || typeof source !== 'object' || Array.isArray(source)) {
                           throw 'invalid source entry';
                       }
-                      if (typeof source.driver !== 'string' || typeof source.available !== 'boolean' || typeof source.stale !== 'boolean' || typeof source.last_success !== 'string' || !Array.isArray(source.metrics)) {
+                      if (typeof source.driver !== 'string' || typeof source.available !== 'boolean' || typeof source.stale !== 'boolean' || typeof source.last_success !== 'string' || typeof source.unavailable_since !== 'string' || !Array.isArray(source.metrics)) {
                           throw 'invalid source schema';
                       }
                       if (source.last_success !== '0001-01-01T00:00:00Z' && (isNaN(Date.parse(source.last_success)) || Date.parse(source.last_success) < 0)) {
                           throw 'invalid source timestamp';
+                      }
+                      if (source.unavailable_since !== '0001-01-01T00:00:00Z' && (isNaN(Date.parse(source.unavailable_since)) || Date.parse(source.unavailable_since) < 0)) {
+                          throw 'invalid unavailable_since timestamp';
                       }
                       source.metrics.forEach(function (metric) {
                           if (!metric || typeof metric !== 'object' || Array.isArray(metric) || typeof metric.name !== 'string' || metric.name.length < 1 || metric.name.length > 128 || typeof metric.value_type !== 'string' || typeof metric.timestamp !== 'string' || !Object.prototype.hasOwnProperty.call(metric, 'value')) {
@@ -154,6 +157,28 @@ zabbix_export:
               value: health
             - tag: scope
               value: overall
+        - uuid: 062e68eef8814b95be0a40767e0c6d1d
+          name: 'WAGO: Collector available'
+          type: DEPENDENT
+          key: automation.gateway.wago.available
+          history: '7d'
+          trends: '30d'
+          value_type: UNSIGNED
+          description: 'One means the latest WAGO collector poll succeeded; zero means the WAGO was not reachable by the collector.'
+          master_item:
+            key: automation.gateway.snapshot
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$["{$WAGO_SOURCE}"].available'
+            - type: JAVASCRIPT
+              parameters:
+                - 'return value === "true" ? 1 : 0;'
+          tags:
+            - tag: component
+              value: availability
+            - tag: device
+              value: wago
         - uuid: 1fa248c88e9c48c38ed250719763a212
           name: 'TS Service health: WAGO 750-880'
           type: DEPENDENT
@@ -192,8 +217,8 @@ zabbix_export:
               value: wago
           triggers:
             - uuid: c7bf160795a84d2dbb13601d5154f496
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=2'
-              name: 'WAGO service health has a real issue or is unavailable'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=2 and last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.available)=1'
+              name: 'WAGO service health reports a real diagnostic issue'
               priority: HIGH
             - uuid: 472d5a45cf244473aabd2ece2a4bea98
               expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.wago.health)=1'
@@ -850,6 +875,39 @@ zabbix_export:
                   value: '{#SOURCE}'
                 - tag: driver
                   value: '{#DRIVER}'
+            - uuid: 60142c963f2b4a7980c2fc1c93f613da
+              name: 'Source {#SOURCE}: unavailable since'
+              type: DEPENDENT
+              key: 'automation.gateway.source.unavailable_since["{#SOURCE}"]'
+              history: '7d'
+              trends: '30d'
+              value_type: UNSIGNED
+              units: unixtime
+              description: 'UTC Unix time of the first failed collector poll in the current uninterrupted outage; zero while available.'
+              master_item:
+                key: automation.gateway.snapshot
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '{#SOURCEPATH}.unavailable_since'
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      if (value === '0001-01-01T00:00:00Z') {
+                          return 0;
+                      }
+                      var timestamp = Date.parse(value);
+                      if (isNaN(timestamp) || timestamp < 0) {
+                          throw 'invalid unavailable_since timestamp';
+                      }
+                      return Math.floor(timestamp / 1000);
+              tags:
+                - tag: component
+                  value: source
+                - tag: source
+                  value: '{#SOURCE}'
+                - tag: driver
+                  value: '{#DRIVER}'
             - uuid: c90c81ede4ab442aa1d58255fe185abb
               name: 'TS Service health: {#SOURCE}'
               type: DEPENDENT
@@ -916,17 +974,27 @@ zabbix_export:
                   value: '{#DRIVER}'
           trigger_prototypes:
             - uuid: d9ab70eba9b2473ba9b9f0b948032be2
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.available["{#SOURCE}"])=0'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.available["{#SOURCE}"])=0 and last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.unavailable_since["{#SOURCE}"])>0 and now()-last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.unavailable_since["{#SOURCE}"])<300'
               name: 'Source {#SOURCE} is unavailable'
               priority: HIGH
-              description: 'The latest independent collector attempt failed. The gateway can still expose a last-known-good cached value.'
+              description: 'The latest independent collector attempt failed. This High event remains active until recovery or escalation to Disaster after five continuous minutes.'
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: source
+                  value: '{#SOURCE}'
+            - uuid: 3fe91b8b690d4ef390203795cf4659ed
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.available["{#SOURCE}"])=0 and last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.unavailable_since["{#SOURCE}"])>0 and now()-last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.unavailable_since["{#SOURCE}"])>=300'
+              name: 'Source {#SOURCE} is unavailable for 5 minutes'
+              priority: DISASTER
+              description: 'The collector has continuously failed for at least five minutes. Recovery occurs immediately after the next successful collector poll reaches Zabbix.'
               tags:
                 - tag: scope
                   value: availability
                 - tag: source
                   value: '{#SOURCE}'
             - uuid: 7c457edf8c714b0e8f10c954f38ca530
-              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.stale["{#SOURCE}"])=1'
+              expression: 'last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.stale["{#SOURCE}"])=1 and last(/Template HomeAuthMonitorGW by HTTP/automation.gateway.source.available["{#SOURCE}"])=1'
               name: 'Source {#SOURCE} data is stale'
               priority: WARNING
               description: 'Cached values remain visible but must not be treated as current.'

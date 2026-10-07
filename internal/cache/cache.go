@@ -15,16 +15,17 @@ import (
 
 // Snapshot describes the latest state and retained data for one collector source.
 type Snapshot struct {
-	Name         string               `json:"name"`
-	Driver       string               `json:"driver"`
-	Available    bool                 `json:"available"`
-	Stale        bool                 `json:"stale"`
-	LastAttempt  time.Time            `json:"last_attempt,omitempty"`
-	LastSuccess  time.Time            `json:"last_success,omitempty"`
-	PollDuration time.Duration        `json:"poll_duration_ns"`
-	Error        string               `json:"error,omitempty"`
-	Metrics      []metrics.Metric     `json:"metrics"`
-	Discovery    []metrics.Definition `json:"discovery,omitempty"`
+	Name             string               `json:"name"`
+	Driver           string               `json:"driver"`
+	Available        bool                 `json:"available"`
+	Stale            bool                 `json:"stale"`
+	LastAttempt      time.Time            `json:"last_attempt,omitempty"`
+	LastSuccess      time.Time            `json:"last_success,omitempty"`
+	UnavailableSince time.Time            `json:"unavailable_since"`
+	PollDuration     time.Duration        `json:"poll_duration_ns"`
+	Error            string               `json:"error,omitempty"`
+	Metrics          []metrics.Metric     `json:"metrics"`
+	Discovery        []metrics.Definition `json:"discovery,omitempty"`
 }
 
 type entry struct {
@@ -84,6 +85,7 @@ func (s *Store) Success(name string, values []metrics.Metric, duration time.Dura
 	now := s.now().UTC()
 	// A successful poll replaces the last-known-good values and clears stale state.
 	e.snapshot.Available, e.snapshot.Stale, e.snapshot.Error = true, false, ""
+	e.snapshot.UnavailableSince = time.Time{}
 	e.snapshot.LastAttempt, e.snapshot.LastSuccess, e.snapshot.PollDuration = now, now, duration
 	e.snapshot.Metrics = cloneMetrics(values)
 }
@@ -97,8 +99,12 @@ func (s *Store) Failure(name string, _ error, duration time.Duration) {
 		return
 	}
 	// Preserve the last-known-good metrics while exposing only a sanitized failure state.
+	now := s.now().UTC()
+	if e.snapshot.UnavailableSince.IsZero() {
+		e.snapshot.UnavailableSince = now
+	}
 	e.snapshot.Available, e.snapshot.Stale, e.snapshot.Error = false, true, "collector unavailable"
-	e.snapshot.LastAttempt, e.snapshot.PollDuration = s.now().UTC(), duration
+	e.snapshot.LastAttempt, e.snapshot.PollDuration = now, duration
 }
 
 // SetDiscovery deep-copies defs into the discovery cache for name and ignores unknown names.

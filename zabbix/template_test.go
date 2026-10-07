@@ -47,6 +47,7 @@ type templateDocument struct {
 				Triggers []struct {
 					Name       string `yaml:"name"`
 					Expression string `yaml:"expression"`
+					Priority   string `yaml:"priority"`
 				} `yaml:"triggers"`
 			} `yaml:"items"`
 			DiscoveryRules []struct {
@@ -70,6 +71,7 @@ type templateDocument struct {
 				} `yaml:"item_prototypes"`
 				TriggerPrototypes []struct {
 					Expression string `yaml:"expression"`
+					Priority   string `yaml:"priority"`
 				} `yaml:"trigger_prototypes"`
 				Preprocessing []struct {
 					Type       string   `yaml:"type"`
@@ -126,7 +128,7 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 		t.Fatalf("template groups=%+v", document.Export.TemplateGroups)
 	}
 	template := document.Export.Templates[0]
-	if len(template.Items) != 25 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
+	if len(template.Items) != 26 || template.Items[0].Type != "HTTP_AGENT" || template.Items[0].Key != "automation.gateway.snapshot" || !strings.HasSuffix(template.Items[0].URL, "/api/v1/metrics") {
 		t.Fatalf("master items=%+v", template.Items)
 	}
 	for _, item := range template.Items[1:] {
@@ -143,8 +145,8 @@ func TestTemplateUsesOneHTTPSMasterAndDependentDiscovery(t *testing.T) {
 	if len(template.DiscoveryRules) != 3 {
 		t.Fatalf("discovery rules=%d", len(template.DiscoveryRules))
 	}
-	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 4, "automation.gateway.metrics.discovery": 2, "automation.gateway.numeric_metrics.discovery": 2}
-	triggerCounts := map[string]int{"automation.gateway.sources.discovery": 2, "automation.gateway.metrics.discovery": 0, "automation.gateway.numeric_metrics.discovery": 0}
+	prototypeCounts := map[string]int{"automation.gateway.sources.discovery": 5, "automation.gateway.metrics.discovery": 2, "automation.gateway.numeric_metrics.discovery": 2}
+	triggerCounts := map[string]int{"automation.gateway.sources.discovery": 3, "automation.gateway.metrics.discovery": 0, "automation.gateway.numeric_metrics.discovery": 0}
 	foundGenericHealth := false
 	for _, rule := range template.DiscoveryRules {
 		if rule.Type != "DEPENDENT" || rule.MasterItem.Key != "automation.gateway.snapshot" {
@@ -217,7 +219,7 @@ func TestTemplateUUIDsAreUnique(t *testing.T) {
 		}
 	}
 	visit(&root)
-	if len(seen) != 52 {
+	if len(seen) != 55 {
 		t.Fatalf("UUID count=%d", len(seen))
 	}
 }
@@ -295,7 +297,7 @@ func TestMasterJavaScriptRejectsInvalidPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := "const value = process.argv[1]; function transform() {\n" + document.Export.Templates[0].Items[0].Preprocessing[0].Parameters[0] + "\n} process.stdout.write(transform());"
-	valid := `{"source-one":{"driver":"nut","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","metrics":[]}}`
+	valid := `{"source-one":{"driver":"nut","available":false,"stale":true,"last_success":"0001-01-01T00:00:00Z","unavailable_since":"2026-10-07T12:00:00Z","metrics":[]}}`
 	output, err := exec.Command(node, "-e", script, valid).CombinedOutput()
 	if err != nil || string(output) != valid {
 		t.Fatalf("valid payload: %v output=%q", err, output)
@@ -423,7 +425,7 @@ func TestDashboardLayoutMatchesUserExport(t *testing.T) {
 		},
 		"WAGO 750-880": {
 			"IEC task cycle in µs": {"0", "0", "40", "4", "svggraph"},
-			"CODESYS software": {"0", "4", "15", "4", "itemhistory"}, "K-bus modules": {"15", "4", "25", "4", "wago_kbus"},
+			"CODESYS software":     {"0", "4", "15", "4", "itemhistory"}, "K-bus modules": {"15", "4", "25", "4", "wago_kbus"},
 			"Diagnostic": {"40", "0", "21", "", "item"}, "Health": {"40", "2", "11", "", "item"},
 			"Uptime": {"40", "4", "11", "", "item"}, "Firmware": {"40", "6", "11", "", "item"},
 			"RTC battery": {"51", "2", "10", "", "item"}, "Error code": {"51", "4", "10", "", "item"},
@@ -547,6 +549,7 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 		triggers []struct {
 			Name       string `yaml:"name"`
 			Expression string `yaml:"expression"`
+			Priority   string `yaml:"priority"`
 		}
 	}{}
 	for _, item := range template.Items {
@@ -559,6 +562,7 @@ func TestWAGOProjectAndModuleInventory(t *testing.T) {
 			triggers []struct {
 				Name       string `yaml:"name"`
 				Expression string `yaml:"expression"`
+				Priority   string `yaml:"priority"`
 			}
 		}{item.ValueType, item.Preprocessing, item.Triggers}
 	}
@@ -897,4 +901,73 @@ func TestDeviceHealthJavaScriptScoresCollectorsIndependently(t *testing.T) {
 			t.Fatalf("generic health source=%q want=%q error=%v output=%q", source, want, err, output)
 		}
 	}
+}
+
+// TestSourceAvailabilityEscalatesFromHighToDisaster verifies mutually exclusive, duration-based
+// unavailability events and suppresses stale/diagnostic duplicates while a collector is offline.
+func TestSourceAvailabilityEscalatesFromHighToDisaster(t *testing.T) {
+	data, err := os.ReadFile("template_homeauthmonitorgw.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document templateDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	template := document.Export.Templates[0]
+
+	foundWAGOAvailability := false
+	for _, item := range template.Items {
+		if item.Key == "automation.gateway.wago.available" {
+			foundWAGOAvailability = item.ValueType == "UNSIGNED" && item.MasterItem.Key == "automation.gateway.snapshot"
+		}
+		if item.Key == "automation.gateway.wago.health" {
+			for _, trigger := range item.Triggers {
+				if trigger.Priority == "HIGH" && !strings.Contains(trigger.Expression, "automation.gateway.wago.available") {
+					t.Fatalf("WAGO diagnostic trigger also fires for unavailability: %q", trigger.Expression)
+				}
+			}
+		}
+	}
+	if !foundWAGOAvailability {
+		t.Fatal("missing static WAGO availability item")
+	}
+
+	for _, rule := range template.DiscoveryRules {
+		if rule.Key != "automation.gateway.sources.discovery" {
+			continue
+		}
+		foundUnavailableSince := false
+		for _, prototype := range rule.ItemPrototypes {
+			if prototype.Key == `automation.gateway.source.unavailable_since["{#SOURCE}"]` {
+				foundUnavailableSince = prototype.ValueType == "UNSIGNED"
+			}
+		}
+		if !foundUnavailableSince {
+			t.Fatal("missing per-source unavailable_since prototype")
+		}
+
+		var high, disaster, stale string
+		for _, trigger := range rule.TriggerPrototypes {
+			switch trigger.Priority {
+			case "HIGH":
+				high = trigger.Expression
+			case "DISASTER":
+				disaster = trigger.Expression
+			case "WARNING":
+				stale = trigger.Expression
+			}
+		}
+		if !strings.Contains(high, "now()-last(") || !strings.Contains(high, ")<300") {
+			t.Fatalf("immediate High expression=%q", high)
+		}
+		if !strings.Contains(disaster, "now()-last(") || !strings.Contains(disaster, ")>=300") {
+			t.Fatalf("five-minute Disaster expression=%q", disaster)
+		}
+		if !strings.Contains(stale, `automation.gateway.source.available["{#SOURCE}"])=1`) {
+			t.Fatalf("stale trigger does not suppress offline duplicate: %q", stale)
+		}
+		return
+	}
+	t.Fatal("source discovery rule not found")
 }

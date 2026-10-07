@@ -6,6 +6,7 @@
 package cache
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -34,6 +35,45 @@ func TestStoreKeepsLastKnownGoodAndMarksStaleAfterFailure(t *testing.T) {
 	}
 	if got.LastSuccess.IsZero() || got.LastAttempt != now {
 		t.Fatalf("times=%+v", got)
+	}
+}
+
+// TestStoreTracksContinuousUnavailability verifies that repeated failures retain the first
+// failure time and that a successful poll clears it for immediate recovery.
+func TestStoreTracksContinuousUnavailability(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	s := New(func() time.Time { return now })
+	s.Register("wago", "snmp", time.Minute)
+	s.Failure("wago", errors.New("timeout"), time.Second)
+
+	first, _ := s.Snapshot("wago")
+	if first.UnavailableSince != now {
+		t.Fatalf("first unavailable_since=%s want=%s", first.UnavailableSince, now)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["unavailable_since"] != now.Format(time.RFC3339) {
+		t.Fatalf("JSON unavailable_since=%v", payload["unavailable_since"])
+	}
+
+	now = now.Add(4 * time.Minute)
+	s.Failure("wago", errors.New("timeout again"), time.Second)
+	continued, _ := s.Snapshot("wago")
+	if continued.UnavailableSince != first.UnavailableSince {
+		t.Fatalf("continuous failure reset unavailable_since: first=%s current=%s", first.UnavailableSince, continued.UnavailableSince)
+	}
+
+	now = now.Add(time.Minute)
+	s.Success("wago", []metrics.Metric{{Name: "uptime", Value: uint64(1)}}, time.Millisecond)
+	recovered, _ := s.Snapshot("wago")
+	if !recovered.Available || !recovered.UnavailableSince.IsZero() {
+		t.Fatalf("recovery did not clear unavailable_since: %+v", recovered)
 	}
 }
 
