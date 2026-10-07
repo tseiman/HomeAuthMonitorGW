@@ -193,7 +193,10 @@ func TestKbusLayoutJavaScript(t *testing.T) {
 		t.Fatalf("module count=%d, want 4; modules=%+v", len(layout.Modules), layout.Modules)
 	}
 	// Verify slot order and article preservation.
-	cases := []struct{ slot int; article string }{{1, "750-4xx"}, {2, "750-511/000-002"}, {3, "750-5xx"}, {4, "750-652/000-000"}}
+	cases := []struct {
+		slot    int
+		article string
+	}{{1, "750-4xx"}, {2, "750-511/000-002"}, {3, "750-5xx"}, {4, "750-652/000-000"}}
 	for i, want := range cases {
 		got := layout.Modules[i]
 		if got.Slot != want.slot || got.Article != want.article {
@@ -443,6 +446,182 @@ func TestInstallerDefaultPath(t *testing.T) {
 	// The old path must not be the default.
 	if strings.Contains(content, `ZABBIX_MODULES_DIR="/usr/share/zabbix/modules"`) {
 		t.Error("install_widget.sh still sets old default path /usr/share/zabbix/modules")
+	}
+}
+
+// TestWidgetTooltipPortalContracts guards the browser-side behavior that keeps
+// tooltip content outside the widget's clipping containers and cleans it up on
+// every Zabbix lifecycle transition.
+func TestWidgetTooltipPortalContracts(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(widgetDir, "assets/js/class.widget.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+
+	required := []string{
+		"document.body.appendChild(tooltip)",
+		"getBoundingClientRect()",
+		"safeRight",
+		"safeBottom",
+		"setContents(data)",
+		"this._kbusTeardown()",
+		"this._kbusSetup()",
+		"onResize()",
+		"onDeactivate()",
+		"onDestroy()",
+		"document.addEventListener('scroll'",
+		"window.addEventListener('resize'",
+	}
+	for _, want := range required {
+		if !strings.Contains(src, want) {
+			t.Errorf("class.widget.js missing tooltip portal/lifecycle contract %q", want)
+		}
+	}
+}
+
+// TestWidgetTooltipPositioningJavaScript executes the real positioning method
+// with synthetic DOM rectangles. It covers right/left placement, center clamping,
+// and a panel partially outside the viewport without requiring a browser download.
+func TestWidgetTooltipPositioningJavaScript(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed — skipping tooltip geometry test")
+	}
+	data, err := os.ReadFile(filepath.Join(widgetDir, "assets/js/class.widget.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	script := `
+globalThis.CWidget = class {};
+globalThis.document = {documentElement: {clientWidth: 320, clientHeight: 240}};
+eval(process.argv[1] + "\nglobalThis.TestWidget = CWidgetWagoKbus;");
+const widget = new globalThis.TestWidget();
+
+function check(name, panelRect, itemRect, tipRect, expectedSide) {
+  const panel = {getBoundingClientRect: () => panelRect};
+  const item = {getBoundingClientRect: () => itemRect};
+  const tooltip = {style: {}, getBoundingClientRect: () => tipRect};
+  widget._kbusPosition(item, tooltip, panel);
+  const left = Number.parseFloat(tooltip.style.left);
+  const top = Number.parseFloat(tooltip.style.top);
+  const safeLeft = Math.max(panelRect.left, 0);
+  const safeTop = Math.max(panelRect.top, 0);
+  const safeRight = Math.min(panelRect.right, 320);
+  const safeBottom = Math.min(panelRect.bottom, 240);
+  if (left < safeLeft + 8 || left + tipRect.width > safeRight - 8) {
+    throw new Error(name + ': horizontal overflow at ' + left);
+  }
+  if (top < safeTop + 8 || top + tipRect.height > safeBottom - 8) {
+    throw new Error(name + ': vertical overflow at ' + top);
+  }
+  if (expectedSide === 'right' && left !== itemRect.right + 8) {
+    throw new Error(name + ': did not prefer right side');
+  }
+  if (expectedSide === 'left' && left + tipRect.width !== itemRect.left - 8) {
+    throw new Error(name + ': did not fall back to left side');
+  }
+}
+
+check('right', {left:0, top:0, right:300, bottom:200},
+  {left:20, top:40, right:40, bottom:140, width:20, height:100},
+  {width:100, height:40}, 'right');
+check('left', {left:0, top:0, right:300, bottom:200},
+  {left:260, top:40, right:280, bottom:140, width:20, height:100},
+  {width:100, height:40}, 'left');
+check('center-clamp', {left:0, top:0, right:300, bottom:200},
+  {left:145, top:40, right:155, bottom:140, width:10, height:100},
+  {width:180, height:40}, 'center');
+check('viewport-intersection', {left:-50, top:-20, right:200, bottom:150},
+  {left:10, top:20, right:30, bottom:100, width:20, height:80},
+  {width:100, height:40}, 'right');
+`
+	out, err := exec.Command(node, "-e", script, string(data)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("tooltip positioning JavaScript: %v\n%s", err, out)
+	}
+}
+
+// TestWidgetTooltipPinContracts guards the interactive pinned state: one active
+// popup, keyboard activation/closing, a safe close button, and focus restoration.
+func TestWidgetTooltipPinContracts(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(widgetDir, "assets/js/class.widget.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+
+	required := []string{
+		"this._kbusActive",
+		"e.key === 'Enter'",
+		"e.key === ' '",
+		"e.key === 'Escape'",
+		"document.createElement('button')",
+		"btn.textContent = '×'",
+		"btn.setAttribute('aria-label', 'Close details')",
+		"wago-kbus-tooltip--pinned",
+		"tooltip.setAttribute('role', 'dialog')",
+		"home.setAttribute('aria-expanded', 'false')",
+		"returnFocus.focus()",
+	}
+	for _, want := range required {
+		if !strings.Contains(src, want) {
+			t.Errorf("class.widget.js missing pinned-tooltip contract %q", want)
+		}
+	}
+	if strings.Contains(src, "innerHTML") {
+		t.Error("class.widget.js must not introduce an innerHTML sink")
+	}
+}
+
+// TestWidgetTooltipCSSContracts ensures fixed-percentage positioning cannot
+// regress and pinned content remains interactive and selectable.
+func TestWidgetTooltipCSSContracts(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(widgetDir, "assets/css/widget.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+
+	for _, forbidden := range []string{"top: 65%", "top:65%", "top: 35%", "top:35%"} {
+		if strings.Contains(src, forbidden) {
+			t.Errorf("widget.css still contains brittle tooltip placement %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		".wago-kbus-tooltip--floating",
+		"position: fixed",
+		".wago-kbus-tooltip--pinned",
+		"pointer-events: auto",
+		"user-select: text",
+		".wago-kbus-tooltip-close",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("widget.css missing tooltip contract %q", want)
+		}
+	}
+}
+
+func TestWidgetTooltipMarkupAndVersion(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join(widgetDir, "views/widget.view.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(view), `tabindex="0" aria-expanded="false"`); count < 2 {
+		t.Errorf("widget.view.php has %d keyboard-enabled item render paths, want at least 2", count)
+	}
+
+	data, err := os.ReadFile(filepath.Join(widgetDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("manifest.json is not valid JSON: %v", err)
+	}
+	if manifest["version"] != "1.1.1" {
+		t.Errorf("manifest version=%q, want 1.1.1", manifest["version"])
 	}
 }
 

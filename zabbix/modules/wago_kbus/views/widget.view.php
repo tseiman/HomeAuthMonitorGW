@@ -216,7 +216,7 @@ if ($data['error'] !== null) {
     $ctrlSvg = $loadSvg($ctrlSvgPath);
     if ($ctrlSvg !== '') {
         $b64 = base64_encode($ctrlSvg);
-        echo '<div class="wago-kbus-item" role="img" aria-label="' . $e($ctrlLabel) . '">';
+        echo '<div class="wago-kbus-item" role="img" tabindex="0" aria-expanded="false" aria-label="' . $e($ctrlLabel) . '">';
         echo '<img src="data:image/svg+xml;base64,' . $b64 . '" alt="' . $e($ctrlLabel) . '">';
         echo '<div class="wago-kbus-tooltip" role="tooltip">' . $ctrlTooltip . '</div>';
         echo '</div>';
@@ -262,7 +262,7 @@ if ($data['error'] !== null) {
         $svgContent = $loadSvg($svgPath);
         if ($svgContent !== '') {
             $b64 = base64_encode($svgContent);
-            echo '<div class="wago-kbus-item" role="img" aria-label="' . $e($ariaLabel) . '">';
+            echo '<div class="wago-kbus-item" role="img" tabindex="0" aria-expanded="false" aria-label="' . $e($ariaLabel) . '">';
             echo '<img src="data:image/svg+xml;base64,' . $b64 . '" alt="' . $e($ariaLabel) . '">';
             echo '<div class="wago-kbus-tooltip" role="tooltip">' . $tooltip . '</div>';
             echo '</div>';
