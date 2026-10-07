@@ -156,6 +156,7 @@ class CWidgetWagoKbus extends CWidget {
         this._kbusActive = tooltip;
         item.setAttribute('aria-expanded', 'true');
 
+        this._kbusEnsureConnector(tooltip);
         this._kbusPosition(item, tooltip, panel);
         tooltip.style.opacity = '1';
     }
@@ -185,6 +186,10 @@ class CWidgetWagoKbus extends CWidget {
         if (tooltip._wkbClose) {
             tooltip._wkbClose.remove();
             tooltip._wkbClose = null;
+        }
+        if (tooltip._wkbConnector) {
+            tooltip._wkbConnector.svg.remove();
+            tooltip._wkbConnector = null;
         }
 
         if (this._kbusActive === tooltip) {
@@ -236,6 +241,90 @@ class CWidgetWagoKbus extends CWidget {
         this._kbusPosition(item, tooltip, panel);
     }
 
+    _kbusEnsureConnector(tooltip) {
+        if (tooltip._wkbConnector) return;
+
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        const line = document.createElementNS(ns, 'line');
+        const arrow = document.createElementNS(ns, 'polygon');
+
+        svg.classList.add('wago-kbus-tooltip-connector');
+        svg.setAttribute('aria-hidden', 'true');
+        line.classList.add('wago-kbus-tooltip-connector-line');
+        arrow.classList.add('wago-kbus-tooltip-connector-arrow');
+        svg.appendChild(line);
+        svg.appendChild(arrow);
+        document.body.appendChild(svg);
+
+        tooltip._wkbConnector = {svg, line, arrow};
+    }
+
+    _kbusPositionConnector(item, tooltip, panel) {
+        const connector = tooltip._wkbConnector;
+        if (!connector || !item.isConnected || !panel.isConnected) return;
+
+        const itemRect = item.getBoundingClientRect();
+        const tipRect = tooltip.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        const anchorX = itemRect.left + itemRect.width / 2;
+        const anchorY = itemRect.top + itemRect.height / 2;
+        const safeLeft = Math.max(panelRect.left, 0);
+        const safeTop = Math.max(panelRect.top, 0);
+        const safeRight = Math.min(panelRect.right, vw);
+        const safeBottom = Math.min(panelRect.bottom, vh);
+
+        const valid = [anchorX, anchorY, tipRect.left, tipRect.top,
+            tipRect.right, tipRect.bottom].every(Number.isFinite);
+        const anchorVisible = anchorX >= safeLeft && anchorX <= safeRight
+            && anchorY >= safeTop && anchorY <= safeBottom;
+        const anchorInsideTooltip = anchorX >= tipRect.left && anchorX <= tipRect.right
+            && anchorY >= tipRect.top && anchorY <= tipRect.bottom;
+
+        if (!valid || !anchorVisible || anchorInsideTooltip) {
+            connector.svg.style.display = 'none';
+            return;
+        }
+
+        const tipCenterX = tipRect.left + tipRect.width / 2;
+        const tipCenterY = tipRect.top + tipRect.height / 2;
+        const dx = anchorX - tipCenterX;
+        const dy = anchorY - tipCenterY;
+        const halfW = tipRect.width / 2;
+        const halfH = tipRect.height / 2;
+        const edgeScale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
+        const startX = tipCenterX + dx * edgeScale;
+        const startY = tipCenterY + dy * edgeScale;
+        const length = Math.hypot(anchorX - startX, anchorY - startY);
+
+        if (!Number.isFinite(length) || length < 4) {
+            connector.svg.style.display = 'none';
+            return;
+        }
+
+        const ux = (anchorX - startX) / length;
+        const uy = (anchorY - startY) / length;
+        const arrowLength = Math.min(8, length / 2);
+        const arrowHalfWidth = 4;
+        const baseX = anchorX - ux * arrowLength;
+        const baseY = anchorY - uy * arrowLength;
+        const perpX = -uy * arrowHalfWidth;
+        const perpY = ux * arrowHalfWidth;
+
+        connector.line.setAttribute('x1', String(startX));
+        connector.line.setAttribute('y1', String(startY));
+        connector.line.setAttribute('x2', String(anchorX));
+        connector.line.setAttribute('y2', String(anchorY));
+        connector.arrow.setAttribute('points', [
+            `${anchorX},${anchorY}`,
+            `${baseX + perpX},${baseY + perpY}`,
+            `${baseX - perpX},${baseY - perpY}`
+        ].join(' '));
+        connector.svg.style.display = '';
+    }
+
     _kbusPosition(item, tooltip, panel) {
         const panelRect = panel.getBoundingClientRect();
         const vw        = document.documentElement.clientWidth;
@@ -270,20 +359,37 @@ class CWidgetWagoKbus extends CWidget {
 
         // Horizontal: prefer right of item, then left, then center-clamp inside safe area.
         let left;
+        let beside = true;
         if (itemRect.right + margin + tw <= safeRight - margin) {
             left = itemRect.right + margin;
         } else if (itemRect.left - margin - tw >= safeLeft + margin) {
             left = itemRect.left - margin - tw;
         } else {
+            beside = false;
             left = itemRect.left + itemRect.width / 2 - tw / 2;
             left = Math.max(safeLeft + margin, Math.min(safeRight - tw - margin, left));
         }
 
-        // Vertical: center on item, clamped to safe area.
-        let top = itemRect.top + itemRect.height / 2 - th / 2;
+        const anchorY = itemRect.top + itemRect.height / 2;
+        let top;
+        if (beside) {
+            top = anchorY - th / 2;
+        } else {
+            const connectorGap = 12;
+            const above = anchorY - th - connectorGap;
+            const below = anchorY + connectorGap;
+            if (above >= safeTop + margin) {
+                top = above;
+            } else if (below + th <= safeBottom - margin) {
+                top = below;
+            } else {
+                top = anchorY - th / 2;
+            }
+        }
         top = Math.max(safeTop + margin, Math.min(safeBottom - th - margin, top));
 
         tooltip.style.left = left + 'px';
         tooltip.style.top  = top  + 'px';
+        this._kbusPositionConnector(item, tooltip, panel);
     }
 }

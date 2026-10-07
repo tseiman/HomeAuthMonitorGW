@@ -461,6 +461,9 @@ func TestWidgetTooltipPortalContracts(t *testing.T) {
 
 	required := []string{
 		"document.body.appendChild(tooltip)",
+		"document.createElementNS(ns, 'svg')",
+		"document.createElementNS(ns, 'line')",
+		"document.createElementNS(ns, 'polygon')",
 		"getBoundingClientRect()",
 		"safeRight",
 		"safeBottom",
@@ -472,6 +475,8 @@ func TestWidgetTooltipPortalContracts(t *testing.T) {
 		"onDestroy()",
 		"document.addEventListener('scroll'",
 		"window.addEventListener('resize'",
+		"tooltip._wkbConnector.svg.remove()",
+		"this._kbusPositionConnector(item, tooltip, panel)",
 	}
 	for _, want := range required {
 		if !strings.Contains(src, want) {
@@ -536,6 +541,36 @@ check('center-clamp', {left:0, top:0, right:300, bottom:200},
 check('viewport-intersection', {left:-50, top:-20, right:200, bottom:150},
   {left:10, top:20, right:30, bottom:100, width:20, height:80},
   {width:100, height:40}, 'right');
+
+const attributes = {};
+const arrowAttributes = {};
+const connector = {
+  svg: {style: {}},
+  line: {setAttribute: (name, value) => { attributes[name] = value; }},
+  arrow: {setAttribute: (name, value) => { arrowAttributes[name] = value; }}
+};
+const connectorItem = {
+  isConnected: true,
+  getBoundingClientRect: () => ({left:240, top:60, right:260, bottom:140, width:20, height:80})
+};
+const connectorPanel = {
+  isConnected: true,
+  getBoundingClientRect: () => ({left:0, top:0, right:300, bottom:200})
+};
+const connectorTooltip = {
+  _wkbConnector: connector,
+  getBoundingClientRect: () => ({left:20, top:70, right:120, bottom:130, width:100, height:60})
+};
+widget._kbusPositionConnector(connectorItem, connectorTooltip, connectorPanel);
+if (attributes.x1 !== '120' || attributes.y1 !== '100') {
+  throw new Error('connector does not start at nearest tooltip edge: ' + JSON.stringify(attributes));
+}
+if (attributes.x2 !== '250' || attributes.y2 !== '100') {
+  throw new Error('connector does not end at item center: ' + JSON.stringify(attributes));
+}
+if (!arrowAttributes.points || !arrowAttributes.points.startsWith('250,100 ')) {
+  throw new Error('arrow tip does not end at item center: ' + arrowAttributes.points);
+}
 `
 	out, err := exec.Command(node, "-e", script, string(data)).CombinedOutput()
 	if err != nil {
@@ -592,6 +627,11 @@ func TestWidgetTooltipCSSContracts(t *testing.T) {
 	for _, want := range []string{
 		".wago-kbus-tooltip--floating",
 		"position: fixed",
+		".wago-kbus-tooltip-connector",
+		".wago-kbus-tooltip-connector-line",
+		".wago-kbus-tooltip-connector-arrow",
+		"z-index: 9998",
+		"pointer-events: none",
 		".wago-kbus-tooltip--pinned",
 		"pointer-events: auto",
 		"user-select: text",
@@ -620,8 +660,8 @@ func TestWidgetTooltipMarkupAndVersion(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("manifest.json is not valid JSON: %v", err)
 	}
-	if manifest["version"] != "1.1.1" {
-		t.Errorf("manifest version=%q, want 1.1.1", manifest["version"])
+	if manifest["version"] != "1.1.2" {
+		t.Errorf("manifest version=%q, want 1.1.2", manifest["version"])
 	}
 }
 

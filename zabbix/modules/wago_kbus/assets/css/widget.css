@@ -69,6 +69,25 @@
     z-index: 9999;
 }
 
+.wago-kbus-tooltip-connector {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 9998;
+}
+
+.wago-kbus-tooltip-connector-line {
+    stroke: #5d6d7e;
+    stroke-width: 1.5;
+}
+
+.wago-kbus-tooltip-connector-arrow {
+    fill: #5d6d7e;
+}
+
 /* Pinned state: content is selectable/copyable; extra right padding for × button. */
 .wago-kbus-tooltip--pinned {
     pointer-events: auto;
