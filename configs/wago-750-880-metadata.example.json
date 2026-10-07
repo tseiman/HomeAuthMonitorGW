@@ -550,6 +550,34 @@
     "description": "Number of I/O modules detected on the K-bus. An unexpected change can indicate a missing module or K-bus problem."
   },
   {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.2.0",
+    "name": "wioAnalogOutLength",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Total analog output process-image length for the K-bus, in bits."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.3.0",
+    "name": "wioAnalogInLength",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Total analog input process-image length for the K-bus, in bits."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.4.0",
+    "name": "wioDigitalOutLength",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Total digital output process-image length for the K-bus, in bits."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.5.0",
+    "name": "wioDigitalInLength",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Total digital input process-image length for the K-bus, in bits."
+  },
+  {
     "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.1.1",
     "name": "wioModuleNumber[1]",
     "type": "INTEGER",
@@ -890,5 +918,537 @@
     "name": "wioModuleType[19]",
     "type": "INTEGER",
     "description": "Vendor-specific numeric module type. Correlate it with wioModuleName for the same slot."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.1",
+    "name": "wioModuleAnalogOutLength[1]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 1 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.2",
+    "name": "wioModuleAnalogOutLength[2]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 2 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.3",
+    "name": "wioModuleAnalogOutLength[3]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 3 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.4",
+    "name": "wioModuleAnalogOutLength[4]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 4 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.5",
+    "name": "wioModuleAnalogOutLength[5]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 5 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.6",
+    "name": "wioModuleAnalogOutLength[6]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 6 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.7",
+    "name": "wioModuleAnalogOutLength[7]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 7 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.8",
+    "name": "wioModuleAnalogOutLength[8]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 8 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.9",
+    "name": "wioModuleAnalogOutLength[9]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 9 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.10",
+    "name": "wioModuleAnalogOutLength[10]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 10 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.11",
+    "name": "wioModuleAnalogOutLength[11]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 11 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.12",
+    "name": "wioModuleAnalogOutLength[12]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 12 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.13",
+    "name": "wioModuleAnalogOutLength[13]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 13 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.14",
+    "name": "wioModuleAnalogOutLength[14]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 14 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.15",
+    "name": "wioModuleAnalogOutLength[15]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 15 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.16",
+    "name": "wioModuleAnalogOutLength[16]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 16 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.17",
+    "name": "wioModuleAnalogOutLength[17]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 17 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.18",
+    "name": "wioModuleAnalogOutLength[18]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 18 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.6.19",
+    "name": "wioModuleAnalogOutLength[19]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 19 analog output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.1",
+    "name": "wioModuleAnalogInLength[1]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 1 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.2",
+    "name": "wioModuleAnalogInLength[2]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 2 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.3",
+    "name": "wioModuleAnalogInLength[3]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 3 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.4",
+    "name": "wioModuleAnalogInLength[4]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 4 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.5",
+    "name": "wioModuleAnalogInLength[5]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 5 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.6",
+    "name": "wioModuleAnalogInLength[6]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 6 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.7",
+    "name": "wioModuleAnalogInLength[7]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 7 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.8",
+    "name": "wioModuleAnalogInLength[8]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 8 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.9",
+    "name": "wioModuleAnalogInLength[9]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 9 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.10",
+    "name": "wioModuleAnalogInLength[10]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 10 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.11",
+    "name": "wioModuleAnalogInLength[11]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 11 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.12",
+    "name": "wioModuleAnalogInLength[12]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 12 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.13",
+    "name": "wioModuleAnalogInLength[13]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 13 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.14",
+    "name": "wioModuleAnalogInLength[14]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 14 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.15",
+    "name": "wioModuleAnalogInLength[15]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 15 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.16",
+    "name": "wioModuleAnalogInLength[16]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 16 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.17",
+    "name": "wioModuleAnalogInLength[17]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 17 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.18",
+    "name": "wioModuleAnalogInLength[18]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 18 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.7.19",
+    "name": "wioModuleAnalogInLength[19]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 19 analog input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.1",
+    "name": "wioModuleDigitalOutLength[1]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 1 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.2",
+    "name": "wioModuleDigitalOutLength[2]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 2 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.3",
+    "name": "wioModuleDigitalOutLength[3]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 3 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.4",
+    "name": "wioModuleDigitalOutLength[4]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 4 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.5",
+    "name": "wioModuleDigitalOutLength[5]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 5 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.6",
+    "name": "wioModuleDigitalOutLength[6]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 6 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.7",
+    "name": "wioModuleDigitalOutLength[7]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 7 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.8",
+    "name": "wioModuleDigitalOutLength[8]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 8 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.9",
+    "name": "wioModuleDigitalOutLength[9]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 9 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.10",
+    "name": "wioModuleDigitalOutLength[10]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 10 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.11",
+    "name": "wioModuleDigitalOutLength[11]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 11 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.12",
+    "name": "wioModuleDigitalOutLength[12]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 12 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.13",
+    "name": "wioModuleDigitalOutLength[13]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 13 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.14",
+    "name": "wioModuleDigitalOutLength[14]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 14 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.15",
+    "name": "wioModuleDigitalOutLength[15]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 15 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.16",
+    "name": "wioModuleDigitalOutLength[16]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 16 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.17",
+    "name": "wioModuleDigitalOutLength[17]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 17 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.18",
+    "name": "wioModuleDigitalOutLength[18]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 18 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.8.19",
+    "name": "wioModuleDigitalOutLength[19]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 19 digital output process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.1",
+    "name": "wioModuleDigitalInLength[1]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 1 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.2",
+    "name": "wioModuleDigitalInLength[2]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 2 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.3",
+    "name": "wioModuleDigitalInLength[3]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 3 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.4",
+    "name": "wioModuleDigitalInLength[4]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 4 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.5",
+    "name": "wioModuleDigitalInLength[5]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 5 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.6",
+    "name": "wioModuleDigitalInLength[6]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 6 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.7",
+    "name": "wioModuleDigitalInLength[7]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 7 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.8",
+    "name": "wioModuleDigitalInLength[8]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 8 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.9",
+    "name": "wioModuleDigitalInLength[9]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 9 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.10",
+    "name": "wioModuleDigitalInLength[10]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 10 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.11",
+    "name": "wioModuleDigitalInLength[11]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 11 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.12",
+    "name": "wioModuleDigitalInLength[12]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 12 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.13",
+    "name": "wioModuleDigitalInLength[13]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 13 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.14",
+    "name": "wioModuleDigitalInLength[14]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 14 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.15",
+    "name": "wioModuleDigitalInLength[15]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 15 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.16",
+    "name": "wioModuleDigitalInLength[16]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 16 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.17",
+    "name": "wioModuleDigitalInLength[17]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 17 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.18",
+    "name": "wioModuleDigitalInLength[18]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 18 digital input process-image length, in bits. Zero is a valid length."
+  },
+  {
+    "oid": "1.3.6.1.4.1.13576.10.1.50.8.1.9.19",
+    "name": "wioModuleDigitalInLength[19]",
+    "type": "INTEGER",
+    "unit": "bits",
+    "description": "Module slot 19 digital input process-image length, in bits. Zero is a valid length."
   }
 ]

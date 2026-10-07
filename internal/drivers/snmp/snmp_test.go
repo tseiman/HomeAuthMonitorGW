@@ -8,6 +8,7 @@ package snmp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,11 +89,50 @@ func TestWAGO750880ExampleMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(metadata) != 132 {
-		t.Fatalf("definitions=%d want 132", len(metadata))
+	if len(metadata) != 212 {
+		t.Fatalf("definitions=%d want 212", len(metadata))
 	}
 	task := metadata["1.3.6.1.4.1.13576.10.1.30.9.1.3.1"]
 	if task.Name != "wioIecTaskStatus[1]" || task.Description == "" {
 		t.Fatalf("task metadata=%+v", task)
+	}
+	globalProcessImage := map[string]string{
+		"1.3.6.1.4.1.13576.10.1.50.2.0": "wioAnalogOutLength",
+		"1.3.6.1.4.1.13576.10.1.50.3.0": "wioAnalogInLength",
+		"1.3.6.1.4.1.13576.10.1.50.4.0": "wioDigitalOutLength",
+		"1.3.6.1.4.1.13576.10.1.50.5.0": "wioDigitalInLength",
+	}
+	for oid, name := range globalProcessImage {
+		definition := metadata[oid]
+		if definition.Name != name || definition.Unit != "bits" || definition.Description == "" {
+			t.Errorf("global process-image metadata[%s]=%+v", oid, definition)
+		}
+	}
+	columns := map[int]string{
+		6: "wioModuleAnalogOutLength",
+		7: "wioModuleAnalogInLength",
+		8: "wioModuleDigitalOutLength",
+		9: "wioModuleDigitalInLength",
+	}
+	for column, prefix := range columns {
+		for slot := 1; slot <= 19; slot++ {
+			oid := fmt.Sprintf("1.3.6.1.4.1.13576.10.1.50.8.1.%d.%d", column, slot)
+			definition := metadata[oid]
+			wantName := fmt.Sprintf("%s[%d]", prefix, slot)
+			if definition.Name != wantName || definition.Unit != "bits" || definition.Description == "" {
+				t.Errorf("module process-image metadata[%s]=%+v, want name=%q unit=bits", oid, definition, wantName)
+			}
+		}
+	}
+	metric, err := ConvertPDU(gosnmp.SnmpPDU{
+		Name:  "1.3.6.1.4.1.13576.10.1.50.8.1.9.1",
+		Type:  gosnmp.Integer,
+		Value: 2,
+	}, metadata, time.Unix(1, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metric.Name != "wioModuleDigitalInLength[1]" || metric.Unit != "bits" || metric.Value != int64(2) {
+		t.Fatalf("converted process-image metric=%+v", metric)
 	}
 }
