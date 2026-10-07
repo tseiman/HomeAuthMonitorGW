@@ -464,6 +464,16 @@ The process-image values are **bit lengths used as an identification signature**
 generic count of physical channels: for example, a 750-652 serial module has 192 input and 192
 output process-image bits.
 
+#### Troubleshooting: `Process image: unavailable`
+
+If exact articles resolve but generic `750-4xx`/`750-5xx` modules remain ambiguous, verify that the
+gateway publishes all four `wioModule{Analog,Digital}{In,Out}Length[N]` metrics. The fixed OID
+allowlist and metadata file must map the complete instance OIDs in columns `.6.N` through `.9.N`
+to those exact names; use the current
+[`wago-750-880-metadata.example.json`](configs/wago-750-880-metadata.example.json). Validate the
+gateway configuration, reload the service, then run **Execute now** for
+`automation.gateway.snapshot` in Zabbix.
+
 Controller matching remains catalog-based and uses exact equality between `wioArticleName` and
 the controller entry's `SNMP_ID`.
 
