@@ -354,14 +354,19 @@ if ($data['error'] !== null) {
     // deliberately excluded from physical slot counting and article matching.
     if ($controllerIdentified) {
         $endLabel = '750-600 (End module)';
+        $endTooltip = '<strong>750-600 — End module</strong>'
+            . '<br>Passive K-bus terminator'
+            . '<br>Completes the K-bus mechanically and electrically; no SNMP identity or process data.';
         $endSvg = $loadSvg($SVG_END_MODULE);
         if ($endSvg === '') {
             $endSvg = $loadSvg($SVG_FALLBACK_MODULE);
         }
         if ($endSvg !== '') {
             echo '<div class="wago-kbus-item wago-kbus-item--identified wago-kbus-item--end-module"'
-                . ' role="img" aria-label="' . $e($endLabel) . '">';
+                . ' role="button" tabindex="0" aria-expanded="false" aria-label="' . $e($endLabel) . ' details">';
             echo '<img src="data:image/svg+xml;base64,' . base64_encode($endSvg) . '" alt="">';
+            echo '<div class="wago-kbus-tooltip" role="tooltip" aria-label="750-600 End module details">'
+                . $endTooltip . '</div>';
             echo '</div>';
         }
     }

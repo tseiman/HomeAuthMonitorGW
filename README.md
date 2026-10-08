@@ -477,7 +477,8 @@ gateway configuration, reload the service, then run **Execute now** for
 Controller matching remains catalog-based and uses exact equality between `wioArticleName` and
 the controller entry's `SNMP_ID`. When the controller resolves uniquely, the widget always appends
 the passive **750-600 End module** after the last runtime module. It is not part of SNMP inventory,
-slot counting, article matching, or health evaluation. The bundled image filename is
+slot counting, article matching, or health evaluation; its detail box identifies it as the passive
+K-bus terminator. The bundled image filename is
 `wago_0750-0600.svg`; the generic module image remains a safe fallback if that standard asset is
 missing from an incomplete installation.
 

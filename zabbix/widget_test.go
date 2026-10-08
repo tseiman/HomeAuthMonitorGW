@@ -1045,7 +1045,12 @@ func TestEndModuleRenderingContract(t *testing.T) {
 	for _, want := range []string{
 		"wago_0750-0600.svg",
 		"750-600 (End module)",
+		"750-600 — End module",
+		"Passive K-bus terminator",
+		"no SNMP identity or process data",
 		"wago-kbus-item--end-module",
+		`role="button"`,
+		`aria-label="750-600 End module details"`,
 		"$controllerIdentified = $ctrlEntry !== null",
 		"if ($controllerIdentified)",
 	} {
@@ -1071,13 +1076,6 @@ func TestEndModuleRenderingContract(t *testing.T) {
 	}
 	if strings.Contains(resolver, "return $entry;") {
 		t.Error("controller resolver must not accept the first matching catalog entry")
-	}
-
-	endBlock := view[endModule : strings.Index(view[endModule:], "    echo '</div>';\n    if ($data['clock']")+endModule]
-	for _, forbidden := range []string{"tabindex=", "aria-expanded=", "wago-kbus-tooltip"} {
-		if strings.Contains(endBlock, forbidden) {
-			t.Errorf("passive end module must not expose interactive tooltip semantics %q", forbidden)
-		}
 	}
 
 	catalogData, err := os.ReadFile(filepath.Join(widgetDir, "default_svg_map.json"))
@@ -1359,8 +1357,8 @@ func TestWidgetTooltipMarkupAndVersion(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("manifest.json is not valid JSON: %v", err)
 	}
-	if manifest["version"] != "1.3.0" {
-		t.Errorf("manifest version=%q, want 1.3.0", manifest["version"])
+	if manifest["version"] != "1.3.1" {
+		t.Errorf("manifest version=%q, want 1.3.1", manifest["version"])
 	}
 }
 
