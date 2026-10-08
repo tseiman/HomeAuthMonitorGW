@@ -10,6 +10,7 @@ define('WAGO_CUSTOM_MAP', '/var/lib/zabbix/wago_kbus/custom_svg_map.json');
 $imgDir = __DIR__ . '/../assets/img/';
 $SVG_FALLBACK_CONTROLLER = $imgDir . 'wago_0750-xxxx_controller.svg';
 $SVG_FALLBACK_MODULE = $imgDir . 'wago_0750-xxxx_modul.svg';
+$SVG_END_MODULE = $imgDir . 'wago_0750-0600.svg';
 $fallbackCtrlImg = basename($SVG_FALLBACK_CONTROLLER);
 $fallbackModImg = basename($SVG_FALLBACK_MODULE);
 
@@ -138,12 +139,16 @@ $resolveController = static function (?string $liveArticle) use ($configControll
     if ($liveArticle === null) {
         return null;
     }
+    $matches = [];
     foreach ($configControllers as $entry) {
         if ($entry['SNMP_ID'] === $liveArticle) {
-            return $entry;
+            $matches[] = $entry;
         }
     }
-    return null;
+    if (count($matches) !== 1) {
+        return null;
+    }
+    return reset($matches);
 };
 
 // Filter candidates by every available live attribute. Missing process-image fields are
@@ -251,7 +256,8 @@ if ($data['error'] !== null) {
     echo '<div class="wago-kbus-rail">';
 
     $ctrlEntry = $resolveController($controllerArticle);
-    if ($ctrlEntry !== null) {
+    $controllerIdentified = $ctrlEntry !== null;
+    if ($controllerIdentified) {
         $ctrlSvgPath = $ctrlEntry['img_path'] ?? $SVG_FALLBACK_CONTROLLER;
         $ctrlLabel = $ctrlEntry['name'] . ' (Controller)';
         $ctrlTooltip = $e($ctrlLabel);
@@ -342,6 +348,22 @@ if ($data['error'] !== null) {
         echo '<img src="data:image/svg+xml;base64,' . base64_encode($svgContent) . '" alt="' . $e($ariaLabel) . '">';
         echo '<div class="wago-kbus-tooltip" role="tooltip">' . $tooltip . '</div>';
         echo '</div>';
+    }
+
+    // Append the passive 750-600 after the runtime inventory. It has no SNMP identity and is
+    // deliberately excluded from physical slot counting and article matching.
+    if ($controllerIdentified) {
+        $endLabel = '750-600 (End module)';
+        $endSvg = $loadSvg($SVG_END_MODULE);
+        if ($endSvg === '') {
+            $endSvg = $loadSvg($SVG_FALLBACK_MODULE);
+        }
+        if ($endSvg !== '') {
+            echo '<div class="wago-kbus-item wago-kbus-item--identified wago-kbus-item--end-module"'
+                . ' role="img" aria-label="' . $e($endLabel) . '">';
+            echo '<img src="data:image/svg+xml;base64,' . base64_encode($endSvg) . '" alt="">';
+            echo '</div>';
+        }
     }
 
     echo '</div>';

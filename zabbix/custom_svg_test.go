@@ -434,6 +434,7 @@ func TestInstallerCustomDataPersistence(t *testing.T) {
 	shippedImages := []string{
 		"wago_0750-0880.svg",
 		"wago_0750-0511.svg",
+		"wago_0750-0600.svg",
 		"wago_0750-xxxx_controller.svg",
 		"wago_0750-xxxx_modul.svg",
 	}

@@ -15,7 +15,7 @@ The default catalog currently references these user-supplied filenames:
 - `wago_0750-1504.svg`
 - `wago_0750-0652.svg`
 
-`wago_0750-0880.svg`, `wago_0750-0511.svg`, and the generic fallback SVGs are already
-provided under `assets/img/`.
+`wago_0750-0880.svg`, `wago_0750-0511.svg`, `wago_0750-0600.svg`, and the generic
+fallback SVGs are already provided under `assets/img/`.
 
 Only commit SVGs whose provenance and redistribution licence have been verified.

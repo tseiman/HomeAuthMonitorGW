@@ -475,7 +475,11 @@ gateway configuration, reload the service, then run **Execute now** for
 `automation.gateway.snapshot` in Zabbix.
 
 Controller matching remains catalog-based and uses exact equality between `wioArticleName` and
-the controller entry's `SNMP_ID`.
+the controller entry's `SNMP_ID`. When the controller resolves uniquely, the widget always appends
+the passive **750-600 End module** after the last runtime module. It is not part of SNMP inventory,
+slot counting, article matching, or health evaluation. The bundled image filename is
+`wago_0750-0600.svg`; the generic module image remains a safe fallback if that standard asset is
+missing from an incomplete installation.
 
 #### Custom SVG assets — persistent, update-safe
 
@@ -601,7 +605,7 @@ Example Ansible task:
 Use this path when an SVG should ship with the widget for all users, not just
 your site.  Site-specific SVGs belong in the custom asset dir above.
 
-1. Obtain the `.elmt` source from the qelectrotech-elements repository (CC BY 4.0; see
+1. Obtain the `.elmt` source from the qelectrotech-elements repository (CC BY 3.0; see
    `tooling/qet_to_svg/PROVENANCE.md` for full attribution requirements).
 
    ```bash

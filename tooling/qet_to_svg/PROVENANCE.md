@@ -16,18 +16,19 @@ The SVG files shipped in `zabbix/modules/wago_kbus/assets/img/` are derivatives 
 definitions from the **qelectrotech-elements** community library:
 
 > qelectrotech-elements — <https://github.com/qelectrotech/qelectrotech-elements>
-> Typically distributed under the **Creative Commons Attribution 4.0 International (CC BY 4.0)**
-> licence; individual element files may carry different terms — verify the licence header
-> in each `.elmt` source file before redistribution.
+> Redistribution of collection elements outside an electrical diagram is governed by the
+> **Creative Commons Attribution 3.0 (CC BY 3.0)** licence in the upstream
+> [`ELEMENTS.LICENSE`](https://github.com/qelectrotech/qelectrotech-elements/blob/master/ELEMENTS.LICENSE);
+> individual element files may carry additional attribution — verify each source before redistribution.
 > Copyright © QElectroTech contributors.
 
-### Attribution (required by CC BY 4.0)
+### Attribution (required by CC BY 3.0)
 
 The WAGO 750-series `.elmt` source files were obtained from the qelectrotech-elements
 repository and converted using `qet_to_svg.py`.  Any redistribution of the converted SVG
 files should retain this attribution notice.  Confirm the exact licence in each source
-`.elmt` file before redistribution (typically CC BY 4.0:
-<https://creativecommons.org/licenses/by/4.0/>).
+`.elmt` file before redistribution (CC BY 3.0 collection licence:
+<https://creativecommons.org/licenses/by/3.0/>).
 
 ### Known source paths (within qelectrotech-elements)
 
@@ -35,6 +36,7 @@ files should retain this attribution notice.  Confirm the exact licence in each 
 |--------------------------------------|--------------------------------------------------------|
 | `wago_0750-0880.svg`                 | `sources/industrial/WAGO/750-880/`                     |
 | `wago_0750-0511.svg`                 | `sources/industrial/WAGO/750-511/`                     |
+| `wago_0750-0600.svg`                 | `10_electric/20_manufacturers_articles/wago/02_front/0750_io_750/120_system/wago_0750-0600-0000-0000.elmt` |
 | `wago_0750-xxxx_controller.svg`      | Project-created generic fallback (not from upstream)   |
 | `wago_0750-xxxx_modul.svg`           | Project-created generic fallback (not from upstream)   |
 | `wago_0750-xxxx.svg`                 | Project-created generic fallback (not from upstream)   |
@@ -67,11 +69,12 @@ python3 tooling/qet_to_svg/qet_to_svg.py wago_0750-0880.elmt \
 #    Open test/wago_kbus_preview.html (see tooling/qet_to_svg/HOWTO.md) or use any SVG viewer.
 ```
 
-To add a new module SVG once the file is in `assets/img/`:
+To add a new built-in module SVG once the file is available:
 
-1. Add the article base number → filename mapping to `$SVG_MODULE_MAP` in
-   `zabbix/modules/wago_kbus/views/widget.view.php`.
-2. Optionally add a human-readable description to `$WAGO_DESCRIPTIONS` in the same file.
+1. Place normal article images in `zabbix/modules/wago_kbus/catalog_images/`; reserve
+   `zabbix/modules/wago_kbus/assets/img/` for controller, fallback, and fixed presentation assets.
+2. Register discoverable articles once in `zabbix/modules/wago_kbus/default_svg_map.json` with
+   their exact `SNMP_ID`, type, image filename, description, and complete process-image signature.
 3. Re-run the widget tests (`go test ./zabbix/...`) to confirm nothing regressed.
 
 ---
@@ -83,8 +86,8 @@ such as the following (adjust if the source element carries a different licence)
 
 ```
 Derived from qelectrotech-elements (https://github.com/qelectrotech/qelectrotech-elements)
-© QElectroTech contributors — verify licence per element; typically CC BY 4.0
-(https://creativecommons.org/licenses/by/4.0/)
+© QElectroTech contributors — verify licence per element; collection redistribution is CC BY 3.0
+(https://creativecommons.org/licenses/by/3.0/)
 ```
 
 This notice is included in this file and should be preserved in any downstream copy or

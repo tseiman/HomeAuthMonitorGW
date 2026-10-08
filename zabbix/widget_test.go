@@ -131,6 +131,7 @@ func TestWidgetSvgAssetsExist(t *testing.T) {
 	required := []string{
 		"wago_0750-0880.svg",
 		"wago_0750-0511.svg",
+		"wago_0750-0600.svg",
 		"wago_0750-xxxx_controller.svg",
 		"wago_0750-xxxx_modul.svg",
 	}
@@ -989,10 +990,11 @@ func TestJsonControllerResolution(t *testing.T) {
 // Mirror of the widget resolveController logic.
 function resolveController(?string $liveArticle, array $configControllers): ?array {
     if ($liveArticle === null) return null;
+	$matches = [];
     foreach ($configControllers as $entry) {
-        if ($entry['SNMP_ID'] === $liveArticle) return $entry;
+		if ($entry['SNMP_ID'] === $liveArticle) $matches[] = $entry;
     }
-    return null;
+	return count($matches) === 1 ? reset($matches) : null;
 }
 
 $cfg = [
@@ -1016,6 +1018,11 @@ if (resolveController('750-8XX', $cfg) !== null) { echo "FAIL: case-different sh
 // Empty config → null.
 if (resolveController('750-880', []) !== null) { echo "FAIL: empty config should return null\n"; $ok = false; }
 
+// Duplicate SNMP_ID matches are ambiguous and must not identify a controller.
+$duplicateCfg = $cfg;
+$duplicateCfg['750-880-alt'] = ['SNMP_ID' => '750-880', 'name' => '750-880-alt', 'description' => 'duplicate'];
+if (resolveController('750-880', $duplicateCfg) !== null) { echo "FAIL: duplicate matches should return null\n"; $ok = false; }
+
 echo $ok ? "OK\n" : "FAILURES\n";`
 
 	out, err := exec.Command(php, "-r", phpLogic).CombinedOutput()
@@ -1024,6 +1031,76 @@ echo $ok ? "OK\n" : "FAILURES\n";`
 	}
 	if strings.TrimSpace(string(out)) != "OK" {
 		t.Fatalf("JSON controller resolution failures:\n%s", out)
+	}
+}
+
+// TestEndModuleRenderingContract keeps the passive 750-600 outside runtime inventory and
+// appends it after every discovered module only when the controller resolves uniquely.
+func TestEndModuleRenderingContract(t *testing.T) {
+	viewData, err := os.ReadFile(filepath.Join(widgetDir, "views/widget.view.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := string(viewData)
+	for _, want := range []string{
+		"wago_0750-0600.svg",
+		"750-600 (End module)",
+		"wago-kbus-item--end-module",
+		"$controllerIdentified = $ctrlEntry !== null",
+		"if ($controllerIdentified)",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("widget.view.php missing end-module contract %q", want)
+		}
+	}
+	moduleLoop := strings.Index(view, "foreach ($modules as $module)")
+	endModule := strings.Index(view, "// Append the passive 750-600 after the runtime inventory.")
+	if moduleLoop < 0 || endModule < 0 || endModule <= moduleLoop {
+		t.Errorf("750-600 must be rendered after the runtime module loop: loop=%d end=%d", moduleLoop, endModule)
+	}
+	resolverStart := strings.Index(view, "$resolveController =")
+	resolverEnd := strings.Index(view, "// Filter candidates")
+	if resolverStart < 0 || resolverEnd <= resolverStart {
+		t.Fatal("cannot isolate controller resolver")
+	}
+	resolver := view[resolverStart:resolverEnd]
+	for _, want := range []string{"$matches = []", "count($matches) !== 1"} {
+		if !strings.Contains(resolver, want) {
+			t.Errorf("controller resolver missing unique-match guard %q", want)
+		}
+	}
+	if strings.Contains(resolver, "return $entry;") {
+		t.Error("controller resolver must not accept the first matching catalog entry")
+	}
+
+	endBlock := view[endModule : strings.Index(view[endModule:], "    echo '</div>';\n    if ($data['clock']")+endModule]
+	for _, forbidden := range []string{"tabindex=", "aria-expanded=", "wago-kbus-tooltip"} {
+		if strings.Contains(endBlock, forbidden) {
+			t.Errorf("passive end module must not expose interactive tooltip semantics %q", forbidden)
+		}
+	}
+
+	catalogData, err := os.ReadFile(filepath.Join(widgetDir, "default_svg_map.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Modules map[string]json.RawMessage `json:"modules"`
+	}
+	if err := json.Unmarshal(catalogData, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := catalog.Modules["750-600"]; found {
+		t.Error("passive 750-600 must not be treated as a discovered/catalog-matched runtime module")
+	}
+
+	cssData, err := os.ReadFile(filepath.Join(widgetDir, "assets/css/widget.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(cssData)
+	if !strings.Contains(css, "gap: 0") || !strings.Contains(css, ".wago-kbus-item + .wago-kbus-item") {
+		t.Error("rail must keep controller, runtime modules, and end module directly adjacent")
 	}
 }
 
@@ -1282,8 +1359,8 @@ func TestWidgetTooltipMarkupAndVersion(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("manifest.json is not valid JSON: %v", err)
 	}
-	if manifest["version"] != "1.2.0" {
-		t.Errorf("manifest version=%q, want 1.2.0", manifest["version"])
+	if manifest["version"] != "1.3.0" {
+		t.Errorf("manifest version=%q, want 1.3.0", manifest["version"])
 	}
 }
 
