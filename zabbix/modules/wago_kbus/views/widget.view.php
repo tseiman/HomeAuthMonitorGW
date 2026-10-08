@@ -6,6 +6,7 @@ $e = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE,
 define('WAGO_CUSTOM_BASE', '/var/lib/zabbix/wago_kbus');
 define('WAGO_CUSTOM_IMAGES', '/var/lib/zabbix/wago_kbus/images');
 define('WAGO_CUSTOM_MAP', '/var/lib/zabbix/wago_kbus/custom_svg_map.json');
+define('WAGO_PLC_CONFIGURATION', '/var/lib/zabbix/wago_kbus/plc_configuration.cfg');
 
 $imgDir = __DIR__ . '/../assets/img/';
 $SVG_FALLBACK_CONTROLLER = $imgDir . 'wago_0750-xxxx_controller.svg';
@@ -121,6 +122,102 @@ $loadConfigMap = static function () use ($validFilename, $validCatalogKey, $reso
 $configMap = $loadConfigMap();
 $configControllers = $configMap['controllers'];
 $moduleCatalog = $configMap['modules'];
+
+// Optional CODESYS PLC_CONFIGURATION export. Only immediate children of the K-Bus module are
+// accepted as physical slots. The file is display-only and all values are escaped at render time.
+$loadCodesysConfiguration = static function (): array {
+    $path = WAGO_PLC_CONFIGURATION;
+    if (is_link($path) || !is_file($path) || !is_readable($path)) {
+        return [];
+    }
+    $size = @filesize($path);
+    if ($size === false || $size <= 0 || $size > 2 * 1024 * 1024) {
+        return [];
+    }
+    $raw = @file_get_contents($path);
+    if ($raw === false || !str_starts_with($raw, "PLC_CONFIGURATION")) {
+        return [];
+    }
+    if (function_exists('iconv')) {
+        $converted = @iconv('Windows-1252', 'UTF-8//IGNORE', $raw);
+        if ($converted !== false) {
+            $raw = $converted;
+        }
+    }
+
+    $decodeValue = static function (string $value): string {
+        $value = trim($value);
+        if (strlen($value) >= 2 && $value[0] === "'" && $value[strlen($value) - 1] === "'") {
+            $value = str_replace("''", "'", substr($value, 1, -1));
+        }
+        return substr(trim($value), 0, 512);
+    };
+
+    $moduleStack = [];
+    $channel = null;
+    $slots = [];
+    $duplicateSlots = [];
+    foreach (preg_split('/\r\n|\n|\r/', $raw) as $line) {
+        $line = trim($line);
+        if ($line === "_MODULE: '3S'") {
+            $moduleStack[] = ['module_name' => '', 'index_in_parent' => '', 'channels' => []];
+            $channel = null;
+            continue;
+        }
+        if ($line === '_END_MODULE') {
+            $module = array_pop($moduleStack);
+            $parent = $moduleStack ? end($moduleStack) : null;
+            if (is_array($module) && is_array($parent) && $parent['module_name'] === 'K-Bus'
+                    && preg_match('/^[1-9][0-9]*$/D', $module['index_in_parent'])) {
+                $slot = (int) $module['index_in_parent'];
+                if ($slot > 0 && !isset($duplicateSlots[$slot])) {
+                    if (isset($slots[$slot])) {
+                        unset($slots[$slot]);
+                        $duplicateSlots[$slot] = true;
+                    } else {
+                        usort($module['channels'], static fn(array $a, array $b): int =>
+                            ((int) $a['index_in_parent']) <=> ((int) $b['index_in_parent']));
+                        $slots[$slot] = $module;
+                    }
+                }
+            }
+            $channel = null;
+            continue;
+        }
+        if ($line === '_CHANNEL') {
+            $channel = [
+                'index_in_parent' => '',
+                'symbolic_name' => '',
+                'comment' => '',
+                'channel_mode' => '',
+                'iecadr' => ''
+            ];
+            continue;
+        }
+        if ($line === '_END_CHANNEL') {
+            if (is_array($channel) && $moduleStack
+                    && preg_match('/^[1-9][0-9]*$/D', $channel['index_in_parent'])
+                    && $channel['symbolic_name'] !== '') {
+                $moduleStack[count($moduleStack) - 1]['channels'][] = $channel;
+            }
+            $channel = null;
+            continue;
+        }
+        if (!preg_match('/^_([A-Z0-9_ ]+):\s*(.*)$/', $line, $match)) {
+            continue;
+        }
+        $key = strtolower(str_replace(' ', '_', $match[1]));
+        $value = $decodeValue($match[2]);
+        if (is_array($channel) && array_key_exists($key, $channel)) {
+            $channel[$key] = $value;
+        } elseif ($moduleStack && in_array($key, ['module_name', 'index_in_parent'], true)) {
+            $moduleStack[count($moduleStack) - 1][$key] = $value;
+        }
+    }
+    ksort($slots, SORT_NUMERIC);
+    return $slots;
+};
+$codesysSlots = $loadCodesysConfiguration();
 
 $loadSvg = static function (string $path): string {
     if (is_link($path) || !is_file($path) || !is_readable($path)) {
@@ -294,10 +391,13 @@ if ($data['error'] !== null) {
         echo '</div>';
     }
 
+    $tooltipIdPrefix = 'wago-kbus-tooltip-' . bin2hex(random_bytes(8));
+    $renderedModuleIndex = 0;
     foreach ($modules as $module) {
         if (!is_array($module)) {
             continue;
         }
+        $tooltipId = $tooltipIdPrefix . '-' . (++$renderedModuleIndex);
         $slot = isset($module['slot']) ? (int) $module['slot'] : 0;
         $slotLabel = $slot > 0 ? (string) $slot : '?';
         $article = isset($module['article']) ? (string) $module['article'] : '';
@@ -338,15 +438,38 @@ if ($data['error'] !== null) {
             }
         }
 
+        $configuredModule = $inventoryValid && $slot > 0 ? ($codesysSlots[$slot] ?? null) : null;
+        if (is_array($configuredModule) && $configuredModule['channels']) {
+            $tooltip .= '<div class="wago-kbus-channel-list">';
+            $tooltip .= '<div class="wago-kbus-channel-list__title">Configured I/O — '
+                . $e($configuredModule['module_name']) . '</div>';
+            foreach ($configuredModule['channels'] as $configuredChannel) {
+                $channelNumber = (int) $configuredChannel['index_in_parent'];
+                $mode = $configuredChannel['channel_mode'] === 'I'
+                    ? 'DI'
+                    : ($configuredChannel['channel_mode'] === 'Q' ? 'DO' : $configuredChannel['channel_mode']);
+                $details = array_filter([$mode, $configuredChannel['iecadr']], static fn(string $v): bool => $v !== '');
+                $tooltip .= '<div class="wago-kbus-channel-list__item"><strong>Channel '
+                    . $e($channelNumber) . ':</strong> ' . $e($configuredChannel['symbolic_name']);
+                if ($details) {
+                    $tooltip .= '<span>' . $e(implode(' · ', $details)) . '</span>';
+                }
+                $tooltip .= '</div>';
+            }
+            $tooltip .= '</div>';
+        }
+
         $svgContent = $loadSvg($svgPath);
         if ($svgContent === '') {
             continue;
         }
         $warningClass = $state === 'identified' ? '' : ' wago-kbus-item--warning';
         echo '<div class="wago-kbus-item wago-kbus-item--' . $e($state) . $warningClass
-            . '" role="img" tabindex="0" aria-expanded="false" aria-label="' . $e($ariaLabel) . '">';
+            . '" role="button" tabindex="0" aria-expanded="false" aria-describedby="' . $e($tooltipId)
+            . '" aria-label="' . $e($ariaLabel) . ' details">';
         echo '<img src="data:image/svg+xml;base64,' . base64_encode($svgContent) . '" alt="' . $e($ariaLabel) . '">';
-        echo '<div class="wago-kbus-tooltip" role="tooltip">' . $tooltip . '</div>';
+        echo '<div id="' . $e($tooltipId) . '" class="wago-kbus-tooltip" role="tooltip">'
+            . $tooltip . '</div>';
         echo '</div>';
     }
 

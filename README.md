@@ -482,14 +482,41 @@ K-bus terminator. The bundled image filename is
 `wago_0750-0600.svg`; the generic module image remains a safe fallback if that standard asset is
 missing from an incomplete installation.
 
+#### Optional CODESYS channel labels
+
+The widget can enrich each physical module tooltip with channel names from a CODESYS
+`PLC_CONFIGURATION` export. Install the unchanged export as a root-owned, frontend-readable file:
+
+```bash
+sudo install -o root -g www-data -m 0640 \
+  ./plc_configuration.export \
+  /var/lib/zabbix/wago_kbus/plc_configuration.cfg
+```
+
+Replace `www-data` with the frontend group passed to `install_widget.sh` when different. The widget
+accepts a regular, non-symlink file up to 2 MiB, reads only modules directly below the exported
+`K-Bus`, and maps `_INDEX_IN_PARENT` to the physical slot and channel number. Non-empty
+`_SYMBOLIC_NAME`, direction, and `_IECADR` values are displayed, for example:
+
+```text
+Configured I/O — 0750-0400 2 DI 24 V DC 3.0ms
+Channel 1: DI_KG_Hobby_Licht
+DI · %IX44.0
+```
+
+Long channel lists are constrained to the visible dashboard area and scroll vertically. The export
+is display-only and is never overwritten by the installer. Replace it after every PLC hardware or
+I/O mapping change; the CODESYS module name shown in the tooltip helps reveal stale assignments.
+
 #### Custom SVG assets — persistent, update-safe
 
 Runtime catalog data lives outside the package-managed module tree:
 
 ```text
 /var/lib/zabbix/wago_kbus/
-├── custom_svg_map.json    # reusable controller/module catalog (root:www-data 640)
-└── images/                # catalog and fallback SVGs          (root:www-data 750)
+├── custom_svg_map.json     # reusable controller/module catalog (root:www-data 640)
+├── plc_configuration.cfg   # optional CODESYS export             (root:www-data 640)
+└── images/                 # catalog and fallback SVGs            (root:www-data 750)
 ```
 
 The installer creates these paths and seeds missing files, but never overwrites an existing

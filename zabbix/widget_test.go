@@ -1179,6 +1179,62 @@ func TestWidgetTooltipPortalContracts(t *testing.T) {
 	}
 }
 
+func TestCodesysChannelTooltipContracts(t *testing.T) {
+	viewData, err := os.ReadFile(filepath.Join(widgetDir, "views/widget.view.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := string(viewData)
+	for _, want := range []string{
+		"/var/lib/zabbix/wago_kbus/plc_configuration.cfg",
+		"is_link($path)",
+		"2 * 1024 * 1024",
+		`$parent['module_name'] === 'K-Bus'`,
+		"substr(trim($value), 0, 512)",
+		"$inventoryValid && $slot > 0",
+		"wago-kbus-channel-list",
+		"Configured I/O",
+		"<strong>Channel ",
+		"$e($configuredChannel['symbolic_name'])",
+		"role=\"button\"",
+		"aria-describedby=\"",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("widget.view.php missing CODESYS channel contract %q", want)
+		}
+	}
+
+	jsData, err := os.ReadFile(filepath.Join(widgetDir, "assets/js/class.widget.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(jsData)
+	for _, want := range []string{
+		"Math.min(360, availableW)",
+		"tooltip.style.maxHeight = availableH + 'px'",
+		"tooltip.style.overflowY = 'auto'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("class.widget.js missing long-tooltip contract %q", want)
+		}
+	}
+
+	installerData, err := os.ReadFile(filepath.Join("..", "scripts", "install_widget.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := string(installerData)
+	for _, want := range []string{
+		`PLC_CONFIG_FILE="${CUSTOM_DATA_DIR}/plc_configuration.cfg"`,
+		`reject_symlink_components "${PLC_CONFIG_FILE}"`,
+		`Exists (preserve): ${PLC_CONFIG_FILE}`,
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("install_widget.sh missing CODESYS file contract %q", want)
+		}
+	}
+}
+
 // TestWidgetTooltipPositioningJavaScript executes the real positioning method
 // with synthetic DOM rectangles. It covers right/left placement, center clamping,
 // and a panel partially outside the viewport without requiring a browser download.
@@ -1357,8 +1413,8 @@ func TestWidgetTooltipMarkupAndVersion(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("manifest.json is not valid JSON: %v", err)
 	}
-	if manifest["version"] != "1.3.1" {
-		t.Errorf("manifest version=%q, want 1.3.1", manifest["version"])
+	if manifest["version"] != "1.4.0" {
+		t.Errorf("manifest version=%q, want 1.4.0", manifest["version"])
 	}
 }
 

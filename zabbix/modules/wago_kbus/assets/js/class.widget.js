@@ -346,7 +346,7 @@ class CWidgetWagoKbus extends CWidget {
         // override max-width in very narrow dashboard columns.
         const availableW = Math.max(1, safeW - 2 * margin);
         const availableH = Math.max(1, safeH - 2 * margin);
-        const maxW = Math.min(240, availableW);
+        const maxW = Math.min(360, availableW);
         tooltip.style.maxWidth = maxW + 'px';
         tooltip.style.minWidth = Math.min(140, maxW) + 'px';
         tooltip.style.maxHeight = availableH + 'px';

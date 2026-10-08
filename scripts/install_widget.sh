@@ -37,6 +37,9 @@
 #   images directory ONLY when its destination is absent. Existing files are never
 #   overwritten, preserving site-local modifications.
 #
+#   An optional CODESYS PLC_CONFIGURATION export may be installed manually as
+#   plc_configuration.cfg. The installer validates but never creates, overwrites, or deletes it.
+#
 # Safety checks performed before any write:
 #   - --zabbix-modules-dir must be an absolute, non-empty path.
 #   - Module and persistent-data paths must not contain symlink components.
@@ -104,6 +107,7 @@ WIDGET_STAGE="${WIDGET_DEST}.new.$$"
 
 CUSTOM_IMAGES_DIR="${CUSTOM_DATA_DIR}/images"
 CUSTOM_MAP_FILE="${CUSTOM_DATA_DIR}/custom_svg_map.json"
+PLC_CONFIG_FILE="${CUSTOM_DATA_DIR}/plc_configuration.cfg"
 DEFAULT_MAP_FILE="${WIDGET_SRC}/default_svg_map.json"
 CATALOG_IMAGES_DIR="${WIDGET_SRC}/catalog_images"
 
@@ -201,9 +205,11 @@ validate_persistent_paths() {
     reject_symlink_components "${CUSTOM_DATA_DIR}"
     reject_symlink_components "${CUSTOM_IMAGES_DIR}"
     reject_symlink_components "${CUSTOM_MAP_FILE}"
+    reject_symlink_components "${PLC_CONFIG_FILE}"
     validate_root_owned_ancestors "${CUSTOM_DATA_DIR}"
     validate_root_owned_ancestors "${CUSTOM_IMAGES_DIR}"
     validate_root_owned_ancestors "${CUSTOM_MAP_FILE}"
+    validate_root_owned_ancestors "${PLC_CONFIG_FILE}"
 
     if [[ -e "${CUSTOM_DATA_DIR}" && ! -d "${CUSTOM_DATA_DIR}" ]]; then
         echo "ERROR: Persistent data path is not a directory: ${CUSTOM_DATA_DIR}" >&2
@@ -215,6 +221,10 @@ validate_persistent_paths() {
     fi
     if [[ -e "${CUSTOM_MAP_FILE}" && ! -f "${CUSTOM_MAP_FILE}" ]]; then
         echo "ERROR: Persistent catalog path is not a regular file: ${CUSTOM_MAP_FILE}" >&2
+        exit 1
+    fi
+    if [[ -e "${PLC_CONFIG_FILE}" && ! -f "${PLC_CONFIG_FILE}" ]]; then
+        echo "ERROR: CODESYS PLC configuration path is not a regular file: ${PLC_CONFIG_FILE}" >&2
         exit 1
     fi
 
@@ -276,6 +286,11 @@ if [[ "${DRY_RUN}" == "true" ]]; then
         echo "  Exists (skip): ${CUSTOM_MAP_FILE}"
     else
         echo "  Would copy:    ${CUSTOM_MAP_FILE}  (from ${DEFAULT_MAP_FILE})"
+    fi
+    if [[ -f "${PLC_CONFIG_FILE}" ]]; then
+        echo "  Exists (preserve): ${PLC_CONFIG_FILE}"
+    else
+        echo "  Optional:          ${PLC_CONFIG_FILE}  (manual CODESYS export)"
     fi
     echo ""
     echo "  Shipped/catalog images (copy only when destination absent):"
