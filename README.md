@@ -153,11 +153,11 @@ CGO_ENABLED=0 go build -trimpath -o automation-gateway ./cmd/gateway
 ./scripts/install.sh --binary=./automation-gateway
 ```
 
-## Cross-build, transfer, and installation
+## Cross-build, packaging, transfer, and installation
 
-Cross-building means compiling on one computer (for example, macOS) for a different Linux target. The build command must run from the repository root—the directory containing `go.mod`—and must end with `./cmd/gateway`. Without that final package argument, `go build` searches the repository root for Go files and reports `no Go files`.
+Cross-building means compiling on one computer (for example, macOS) for a different target. Run all build and packaging commands from the repository root—the directory containing `go.mod`. The gateway's main package is `./cmd/gateway`; omitting it makes `go build` search the repository root for Go files and fail with `no Go files`.
 
-### 1. Determine the Linux target architecture
+### 1. Determine the target architecture
 
 Run this on the Debian or Raspberry Pi OS target:
 
@@ -166,134 +166,183 @@ dpkg --print-architecture
 uname -m
 ```
 
-Select exactly one matching build:
+Pass the corresponding architecture to the packaging script:
 
-- `armhf` / `armv7l` → `GOARCH=arm GOARM=7`
-- `i386` / `i686` → `GOARCH=386`
-- `arm64` / `aarch64` → `GOARCH=arm64`
-- `amd64` / `x86_64` → `GOARCH=amd64`
+- `armhf` / `armv7l` → `armhf` or `armv7` → Linux `GOARCH=arm GOARM=7`, package label `armv7`
+- `i386` / `i686` → `i386` or `386` → Linux `GOARCH=386`, package label `386`
+- `arm64` / `aarch64` → `arm64` → Linux `GOARCH=arm64`, package label `arm64`
+- `amd64` / `x86_64` → `amd64` or `x86_64` → Linux `GOARCH=amd64`, package label `amd64`
 
-### 2. Build on the build host
+### 2. Build and package automatically
 
-Enter the repository root, update it, and verify that `go.mod` is present. This path matches a checkout under the current macOS user's home directory:
+Run this on the build host, not on the target. The example path matches a checkout under the current macOS user's home directory:
 
 ```bash
 cd "$HOME/work/go/HomeAutomationMonitorGW"
 test -f go.mod
 git status --short
 git pull --ff-only
-go mod download
+
+./scripts/package_release.sh arm64
 ```
 
-`git status --short` must show no tracked modifications before the pull. Then run **exactly one** complete build command. Each command writes its binary under `/tmp`, not into the repository:
+Replace `arm64` with exactly one architecture from step 1. The script requires a clean Git worktree, downloads checksummed Go modules, injects version metadata, cross-compiles `./cmd/gateway`, creates checksums, stages only installation material, and writes the finished outputs to the **project root**.
 
-```bash
-# Linux ARMv7 / armhf
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o /tmp/automation-gateway-linux-armv7 ./cmd/gateway
-
-# Linux 32-bit x86 / i386
-CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -trimpath -o /tmp/automation-gateway-linux-386 ./cmd/gateway
-
-# Linux 64-bit ARM / arm64 (typical 64-bit Raspberry Pi OS)
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/automation-gateway-linux-arm64 ./cmd/gateway
-
-# Linux 64-bit Intel/AMD / amd64
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/automation-gateway-linux-amd64 ./cmd/gateway
-```
-
-The path after `-o` is the output file. For the ARM64 command above, the resulting file is:
+For an untagged ARM64 commit, the outputs are:
 
 ```text
-/tmp/automation-gateway-linux-arm64
+automation-gateway-linux-arm64
+automation-gateway-linux-arm64.sha256
+automation-gateway-<SHORT-GIT-HASH>-linux-arm64.tar.gz
+automation-gateway-<SHORT-GIT-HASH>-linux-arm64.tar.gz.sha256
 ```
 
-Verify the selected artifact. This example continues with ARM64:
-
-```bash
-ARTIFACT=automation-gateway-linux-arm64
-test -x "/tmp/$ARTIFACT"
-file "/tmp/$ARTIFACT"
-```
-
-For ARM64, `file` must identify an `ELF 64-bit` executable for `ARM aarch64`. It is a Linux binary and cannot be executed directly on macOS.
-
-### 3. Create a transfer package under `/tmp`
-
-The package contains the committed repository files plus the selected binary. Staging, archive, and checksum remain under `/tmp`; nothing is copied to the Desktop.
-
-```bash
-STAGE_DIR="$(mktemp -d /tmp/HomeAutomationMonitorGW-arm64.XXXXXX)"
-git archive HEAD | tar -x -C "$STAGE_DIR"
-install -m 0755 "/tmp/$ARTIFACT" "$STAGE_DIR/$ARTIFACT"
-tar -C "$STAGE_DIR" -czf "/tmp/${ARTIFACT}.tar.gz" .
-rm -rf -- "$STAGE_DIR"
-rm -f -- "/tmp/$ARTIFACT"
-
-cd /tmp
-shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
-ls -lh "${ARTIFACT}.tar.gz" "${ARTIFACT}.tar.gz.sha256"
-```
-
-For the ARM64 example, the two transfer files are:
+The raw binary and both portable SHA-256 files contain only relative filenames. The `tar.gz` contains exactly the runtime installation material—no Go source tree:
 
 ```text
-/tmp/automation-gateway-linux-arm64.tar.gz
-/tmp/automation-gateway-linux-arm64.tar.gz.sha256
+INSTALL.txt
+LICENSE
+automation-gateway-linux-arm64
+configs/config.example.yaml
+configs/mib-metadata.example.json
+scripts/install.sh
+systemd/automation-gateway.service
 ```
 
-### 4. Copy the package to the target
+Temporary staging remains under `/tmp` by default and is removed automatically. Generated release files in the project root are ignored by Git.
 
-Set the actual SSH user and address once, then copy both files to `/tmp` on the target:
+To additionally build a Debian package on a Linux host with `dpkg-deb` installed:
+
+```bash
+./scripts/package_release.sh arm64 --deb
+```
+
+This also creates:
+
+```text
+automation-gateway_<DEBIAN-VERSION>_arm64.deb
+automation-gateway_<DEBIAN-VERSION>_arm64.deb.sha256
+```
+
+A Windows executable and ZIP are created only if the current code successfully cross-compiles for the selected Windows architecture. The gateway currently uses Unix-only secure-file and signal APIs, so the Windows probe is expected to report that Windows is unsupported and skip the ZIP. The script never publishes a misleading or incomplete Windows archive.
+
+### 3. Understand embedded version information
+
+Every binary built by the packaging script receives three linker values:
+
+- `version`: the exact Git tag on `HEAD`, otherwise the 12-character Git commit hash;
+- `commit`: the complete Git commit hash;
+- `built`: the committed Git timestamp.
+
+Inspect them on the matching target architecture with:
+
+```bash
+./automation-gateway-linux-arm64 --version
+```
+
+A Linux ARM64 binary cannot be executed on macOS; run this command after copying it to the ARM64 Linux target. A normal untagged build reports a short hash, for example:
+
+```text
+automation-gateway <SHORT-GIT-HASH> (commit <FULL-GIT-HASH>, built <COMMIT-TIMESTAMP>)
+```
+
+When `HEAD` has the exact tag `v1.2.3`, the same command reports `v1.2.3` as its version. A manually typed `go build` without the script's `-ldflags` reports the default development version, so use `package_release.sh` for deployable artifacts.
+
+### 4. Verify and transfer a Linux archive
+
+Still on the build host, derive the archive name from the same commit and verify it. This example continues with ARM64:
+
+```bash
+ARCH=arm64
+VERSION="$(git describe --tags --exact-match HEAD 2>/dev/null || git rev-parse --short=12 HEAD)"
+ARCHIVE="automation-gateway-${VERSION}-linux-${ARCH}.tar.gz"
+
+shasum -a 256 -c "${ARCHIVE}.sha256"
+```
+
+Set the actual SSH user and target address once, then copy only the archive and its checksum:
 
 ```bash
 TARGET_SSH='your-user@raspberry-pi-address'
-scp "/tmp/${ARTIFACT}.tar.gz" \
-  "/tmp/${ARTIFACT}.tar.gz.sha256" \
-  "$TARGET_SSH:/tmp/"
+scp "$ARCHIVE" "${ARCHIVE}.sha256" "$TARGET_SSH:/tmp/"
 ssh "$TARGET_SSH"
 ```
 
-### 5. Verify and extract on the target
+### 5. Verify, extract, and install on the Linux target
 
-After logging in to the target, set the same artifact name, verify the transfer, and extract into a new temporary directory:
+After logging in, set the filenames copied in step 4:
 
 ```bash
-ARTIFACT=automation-gateway-linux-arm64
+ARCH=arm64
+VERSION='<tag-or-short-hash-from-the-archive-name>'
+ARCHIVE="automation-gateway-${VERSION}-linux-${ARCH}.tar.gz"
+BINARY="automation-gateway-linux-${ARCH}"
+
 cd /tmp
-sha256sum -c "${ARTIFACT}.tar.gz.sha256"
+sha256sum -c "${ARCHIVE}.sha256"
 
 INSTALL_DIR="$(mktemp -d /tmp/HomeAutomationMonitorGW-install.XXXXXX)"
-tar -xzf "/tmp/${ARTIFACT}.tar.gz" -C "$INSTALL_DIR"
+tar -xzf "$ARCHIVE" -C "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-test -x "./$ARTIFACT"
+test -x "./$BINARY"
 test -x ./scripts/install.sh
-file "./$ARTIFACT"
+file "./$BINARY"
+sudo ./scripts/install.sh --binary="$INSTALL_DIR/$BINARY"
 ```
 
-The checksum must report `OK`, and `file` must report the architecture selected in step 1.
-
-### 6. Install the prebuilt binary
-
-Run the repository's installer from the extracted package:
+With `--binary`, the target does not need Go and does not download modules. Existing site-owned configuration, tokens, secrets, and TLS files are preserved. On a first installation with incomplete configuration or missing credentials, the installer intentionally leaves the service inactive. Finish provisioning and then run:
 
 ```bash
-sudo ./scripts/install.sh --binary="$INSTALL_DIR/$ARTIFACT"
+sudo ./scripts/install.sh --binary="$INSTALL_DIR/$BINARY" --start
 ```
 
-With `--binary`, the target does not need Go and does not download Go modules. Existing site-owned configuration, tokens, secrets, and TLS files are preserved. On a first installation with incomplete configuration or missing credentials, the installer intentionally leaves the service inactive. Finish provisioning and then run:
-
-```bash
-sudo ./scripts/install.sh --binary="$INSTALL_DIR/$ARTIFACT" --start
-```
-
-For an already configured and active installation, a changed binary is installed and the active service is restarted. After a successful installation, the transfer archive, checksum, and extracted temporary directory may be removed; this does not remove the installed service:
+For an already configured and active installation, a changed binary is installed and the active service is restarted. After a successful installation, remove only the temporary transfer material:
 
 ```bash
 cd "$HOME"
-rm -rf -- "$INSTALL_DIR"
-rm -f -- "/tmp/${ARTIFACT}.tar.gz" "/tmp/${ARTIFACT}.tar.gz.sha256"
+rm -rf "$INSTALL_DIR"
+rm -f "/tmp/$ARCHIVE" "/tmp/${ARCHIVE}.sha256"
 ```
+
+### 6. Create GitHub release and Debian packages from a version tag
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs only when a version tag matching `v[0-9]*` is pushed. Ordinary commits and branch pushes do **not** build or publish releases.
+
+Create and push an annotated version tag from the clean commit to release:
+
+```bash
+git status --short
+git pull --ff-only
+git tag -a v1.2.3 -m "Release v1.2.3"
+git push origin v1.2.3
+```
+
+GitHub Actions then:
+
+1. checks out the tagged commit with full tag history;
+2. runs the Go tests once;
+3. builds `amd64`, `arm64`, `armv7`/Debian `armhf`, and `386`/Debian `i386` in parallel;
+4. runs `package_release.sh <architecture> --deb` for each architecture;
+5. creates or updates the GitHub Release named after the tag;
+6. uploads raw binaries, checksums, minimal `tar.gz` archives, optional Windows ZIPs if supported in the future, and `.deb` packages.
+
+Because the build runs at the exact tag, `automation-gateway --version` contains that tag instead of the normal short hash. The workflow uses GitHub's scoped `GITHUB_TOKEN` with explicit `contents: write`; no personal access token is required.
+
+To install a downloaded Debian package, first verify its adjacent checksum and then use APT so dependencies are resolved:
+
+```bash
+sha256sum -c automation-gateway_1.2.3_arm64.deb.sha256
+sudo apt install ./automation-gateway_1.2.3_arm64.deb
+```
+
+The Debian package installs the binary under `/usr/sbin`, installs a matching systemd unit, creates the restricted service account and configuration directories, rejects symlinked or non-regular configuration targets, and copies example configuration only when no site file exists. It intentionally does not enable, start, or restart the service automatically. Finish configuration and provisioning, then run:
+
+```bash
+sudo systemctl enable --now automation-gateway
+```
+
+Choose either the archive installer or the Debian package for a host; do not mix the two installation methods, because they intentionally use their platform-appropriate binary and systemd package locations.
 
 ## Configuration
 

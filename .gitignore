@@ -25,6 +25,13 @@ profile.cov
 go.work
 go.work.sum
 
+# Locally generated release material
+/automation-gateway-linux-*
+/automation-gateway-windows-*
+/automation-gateway-*-linux-*.tar.gz*
+/automation-gateway-*-windows-*.zip*
+/automation-gateway_*.deb*
+
 # env file
 .env
 
