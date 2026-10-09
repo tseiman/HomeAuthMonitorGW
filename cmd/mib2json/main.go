@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/mibconvert"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/mibconvert"
 )
 
 var (

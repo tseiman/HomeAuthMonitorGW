@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // TestStoreKeepsLastKnownGoodAndMarksStaleAfterFailure verifies failure sanitization and retained successful metrics.

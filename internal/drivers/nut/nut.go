@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // Client queries one NUT server with bounded network operations.

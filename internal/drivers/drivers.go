@@ -10,8 +10,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // Collector retrieves the current metrics for one source.

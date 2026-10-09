@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/cache"
 )
 
 // Options controls static API metadata.

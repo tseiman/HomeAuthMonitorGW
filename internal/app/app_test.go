@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/config"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/config"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // pair creates a self-signed certificate and key named n in d for serial, returning their paths; unrecoverable setup failures are reported through t.

@@ -18,12 +18,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/config"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/drivers"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/drivers/nut"
-	snmpdriver "github.com/tseiman/HomeAuthMonitorGW/internal/drivers/snmp"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/tlsreload"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/config"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/drivers"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/drivers/nut"
+	snmpdriver "github.com/tseiman/HomeAutomationMonitorGW/internal/drivers/snmp"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/tlsreload"
 )
 
 type sourceSpec struct {

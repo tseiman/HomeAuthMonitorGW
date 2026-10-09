@@ -18,9 +18,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/app"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/config"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/httpapi"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/app"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/config"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/httpapi"
 )
 
 var (

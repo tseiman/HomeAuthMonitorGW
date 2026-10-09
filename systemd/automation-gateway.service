@@ -1,6 +1,6 @@
 [Unit]
 Description=Home automation read-only monitoring gateway
-Documentation=https://github.com/tseiman/HomeAuthMonitorGW
+Documentation=https://github.com/tseiman/HomeAutomationMonitorGW
 Wants=network-online.target
 After=network-online.target nut-server.service
 

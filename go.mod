@@ -1,4 +1,4 @@
-module github.com/tseiman/HomeAuthMonitorGW
+module github.com/tseiman/HomeAutomationMonitorGW
 
 go 1.23
 

@@ -2,7 +2,7 @@
 
 ## Tool licensing
 
-`qet_to_svg.py` is project-internal tooling (part of the HomeAuthMonitorGW repository) written
+`qet_to_svg.py` is project-internal tooling (part of the HomeAutomationMonitorGW repository) written
 to convert QElectroTech `.elmt` element files to plain SVG.  It is distributed under the same
 MIT licence as the rest of this repository (see `LICENSE` in the repository root).
 

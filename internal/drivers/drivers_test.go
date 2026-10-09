@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 type fakeCollector struct{ calls int }

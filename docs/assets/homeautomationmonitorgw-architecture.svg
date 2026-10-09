@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1050" viewBox="0 0 1800 1050" role="img" aria-labelledby="title desc">
-  <title id="title">HomeAuthMonitorGW architecture</title>
+  <title id="title">HomeAutomationMonitorGW architecture</title>
   <desc id="desc">Hand-drawn architecture diagram showing SNMPv3 and NUT inputs, configuration files, independent collectors, in-memory cache, authenticated read-only REST API, and Zabbix as an example consumer.</desc>
   <defs>
     <filter id="paper" x="-5%" y="-5%" width="110%" height="110%">
@@ -29,7 +29,7 @@
   <rect width="1800" height="1050" fill="#fffefa" filter="url(#paper)"/>
 
   <!-- Header -->
-  <text class="title center" x="900" y="68">HomeAuthMonitorGW Architecture</text>
+  <text class="title center" x="900" y="68">HomeAutomationMonitorGW Architecture</text>
   <path d="M345 82 Q900 99 1454 80" fill="none" stroke="#51a9d6" stroke-width="9" stroke-linecap="round" opacity=".75"/>
   <rect class="ink yellow" x="445" y="100" width="910" height="55" rx="25"/>
   <text class="subtitle center" x="900" y="137" textLength="820" lengthAdjust="spacingAndGlyphs">Read-only collection • independent sources • cached HTTPS snapshots</text>

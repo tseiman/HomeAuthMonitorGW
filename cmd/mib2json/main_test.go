@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	snmpdriver "github.com/tseiman/HomeAuthMonitorGW/internal/drivers/snmp"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	snmpdriver "github.com/tseiman/HomeAutomationMonitorGW/internal/drivers/snmp"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 type cannedRunner struct{}

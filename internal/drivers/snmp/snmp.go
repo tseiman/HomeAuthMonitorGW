@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 
 	gosnmp "github.com/gosnmp/gosnmp"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // Metadata indexes metric definitions by normalized OID.

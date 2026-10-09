@@ -1,8 +1,8 @@
-# HomeAuthMonitorGW
+# HomeAutomationMonitorGW
 
-HomeAuthMonitorGW is a small, read-only Linux monitoring gateway. It polls configured NUT and SNMPv3 sources, keeps the latest values in memory, and exposes them through an authenticated HTTPS/JSON API for systems such as Zabbix.
+HomeAutomationMonitorGW is a small, read-only Linux monitoring gateway. It polls configured NUT and SNMPv3 sources, keeps the latest values in memory, and exposes them through an authenticated HTTPS/JSON API for systems such as Zabbix.
 
-[![HomeAuthMonitorGW architecture: SNMPv3 and NUT collectors feed an in-memory snapshot cache exposed through an authenticated read-only HTTPS REST API to Zabbix](docs/assets/homeauthmonitorgw-architecture.png)](docs/assets/homeauthmonitorgw-architecture.svg)
+[![HomeAutomationMonitorGW architecture: SNMPv3 and NUT collectors feed an in-memory snapshot cache exposed through an authenticated read-only HTTPS REST API to Zabbix](docs/assets/homeautomationmonitorgw-architecture.png)](docs/assets/homeautomationmonitorgw-architecture.svg)
 
 - HTTP requests never trigger device access.
 - SNMP uses configured GET/BulkWalk operations only; there is no SET path.
@@ -59,8 +59,8 @@ The installer handles first installation and updates, accepts a locally modified
 sudo apt update
 sudo apt install --yes ca-certificates git golang-go
 
-git clone https://github.com/tseiman/HomeAuthMonitorGW.git
-cd HomeAuthMonitorGW
+git clone https://github.com/tseiman/HomeAutomationMonitorGW.git
+cd HomeAutomationMonitorGW
 go version
 ./scripts/install.sh
 ```
@@ -174,7 +174,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o automation-gateway-l
 Copy the matching artifact and a repository checkout to the target, then run:
 
 ```bash
-cd HomeAuthMonitorGW
+cd HomeAutomationMonitorGW
 ./scripts/install.sh --binary=/path/to/automation-gateway-linux-armv7
 ```
 
@@ -334,6 +334,10 @@ metadata_file: "/etc/automation-gateway/wago-750-880-metadata.json"
 
 ## API and Zabbix
 
+> **Compatibility note:** The Zabbix template intentionally retains its historical
+> `HomeAuthMonitorGW` name, filename, group, and internal references so existing
+> installations can be updated without a template migration.
+
 Every endpoint requires both an allowed TCP peer and a bearer token:
 
 - `GET /api/v1/health`
@@ -389,8 +393,8 @@ destination, stages the new version, atomically replaces the previous installati
 
 ```bash
 # Clone or update the repository first:
-git clone https://github.com/tseiman/HomeAuthMonitorGW.git
-cd HomeAuthMonitorGW
+git clone https://github.com/tseiman/HomeAutomationMonitorGW.git
+cd HomeAutomationMonitorGW
 
 # Install or update (run as root/sudo):
 sudo ./scripts/install_widget.sh
@@ -705,7 +709,7 @@ The script only writes the events to stdout. Send that stdout through the site's
 Update from a clean checkout with the same installer:
 
 ```bash
-cd HomeAuthMonitorGW
+cd HomeAutomationMonitorGW
 git status --short
 git pull --ff-only
 ./scripts/install.sh

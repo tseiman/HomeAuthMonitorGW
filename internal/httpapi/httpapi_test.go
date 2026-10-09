@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/cache"
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/cache"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // testHandler returns a populated API handler with two tokens and a documentation-network client allowlist.

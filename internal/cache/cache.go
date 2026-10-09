@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tseiman/HomeAuthMonitorGW/internal/metrics"
+	"github.com/tseiman/HomeAutomationMonitorGW/internal/metrics"
 )
 
 // Snapshot describes the latest state and retained data for one collector source.
