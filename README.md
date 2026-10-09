@@ -153,32 +153,147 @@ CGO_ENABLED=0 go build -trimpath -o automation-gateway ./cmd/gateway
 ./scripts/install.sh --binary=./automation-gateway
 ```
 
-## Cross-build and installation
+## Cross-build, transfer, and installation
 
-Select the target from its **userspace architecture**, for example with `dpkg --print-architecture`:
+Cross-building means compiling on one computer (for example, macOS) for a different Linux target. The build command must run from the repository root—the directory containing `go.mod`—and must end with `./cmd/gateway`. Without that final package argument, `go build` searches the repository root for Go files and reports `no Go files`.
 
-- `armhf` → `GOARCH=arm GOARM=7`
-- `i386` → `GOARCH=386`
-- `arm64` → `GOARCH=arm64`
-- `amd64` → `GOARCH=amd64`
+### 1. Determine the Linux target architecture
 
-Build on the build host:
+Run this on the Debian or Raspberry Pi OS target:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o automation-gateway-linux-armv7 ./cmd/gateway
-CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -trimpath -o automation-gateway-linux-386 ./cmd/gateway
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o automation-gateway-linux-arm64 ./cmd/gateway
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o automation-gateway-linux-amd64 ./cmd/gateway
+dpkg --print-architecture
+uname -m
 ```
 
-Copy the matching artifact and a repository checkout to the target, then run:
+Select exactly one matching build:
+
+- `armhf` / `armv7l` → `GOARCH=arm GOARM=7`
+- `i386` / `i686` → `GOARCH=386`
+- `arm64` / `aarch64` → `GOARCH=arm64`
+- `amd64` / `x86_64` → `GOARCH=amd64`
+
+### 2. Build on the build host
+
+Enter the repository root, update it, and verify that `go.mod` is present. This path matches a checkout under the current macOS user's home directory:
 
 ```bash
-cd HomeAutomationMonitorGW
-./scripts/install.sh --binary=/path/to/automation-gateway-linux-armv7
+cd "$HOME/work/go/HomeAutomationMonitorGW"
+test -f go.mod
+git status --short
+git pull --ff-only
+go mod download
 ```
 
-The binary-install path still checks the target's systemd and administration commands, but it does not require Go or download modules.
+`git status --short` must show no tracked modifications before the pull. Then run **exactly one** complete build command. Each command writes its binary under `/tmp`, not into the repository:
+
+```bash
+# Linux ARMv7 / armhf
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o /tmp/automation-gateway-linux-armv7 ./cmd/gateway
+
+# Linux 32-bit x86 / i386
+CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -trimpath -o /tmp/automation-gateway-linux-386 ./cmd/gateway
+
+# Linux 64-bit ARM / arm64 (typical 64-bit Raspberry Pi OS)
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/automation-gateway-linux-arm64 ./cmd/gateway
+
+# Linux 64-bit Intel/AMD / amd64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/automation-gateway-linux-amd64 ./cmd/gateway
+```
+
+The path after `-o` is the output file. For the ARM64 command above, the resulting file is:
+
+```text
+/tmp/automation-gateway-linux-arm64
+```
+
+Verify the selected artifact. This example continues with ARM64:
+
+```bash
+ARTIFACT=automation-gateway-linux-arm64
+test -x "/tmp/$ARTIFACT"
+file "/tmp/$ARTIFACT"
+```
+
+For ARM64, `file` must identify an `ELF 64-bit` executable for `ARM aarch64`. It is a Linux binary and cannot be executed directly on macOS.
+
+### 3. Create a transfer package under `/tmp`
+
+The package contains the committed repository files plus the selected binary. Staging, archive, and checksum remain under `/tmp`; nothing is copied to the Desktop.
+
+```bash
+STAGE_DIR="$(mktemp -d /tmp/HomeAutomationMonitorGW-arm64.XXXXXX)"
+git archive HEAD | tar -x -C "$STAGE_DIR"
+install -m 0755 "/tmp/$ARTIFACT" "$STAGE_DIR/$ARTIFACT"
+tar -C "$STAGE_DIR" -czf "/tmp/${ARTIFACT}.tar.gz" .
+rm -rf -- "$STAGE_DIR"
+rm -f -- "/tmp/$ARTIFACT"
+
+cd /tmp
+shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+ls -lh "${ARTIFACT}.tar.gz" "${ARTIFACT}.tar.gz.sha256"
+```
+
+For the ARM64 example, the two transfer files are:
+
+```text
+/tmp/automation-gateway-linux-arm64.tar.gz
+/tmp/automation-gateway-linux-arm64.tar.gz.sha256
+```
+
+### 4. Copy the package to the target
+
+Set the actual SSH user and address once, then copy both files to `/tmp` on the target:
+
+```bash
+TARGET_SSH='your-user@raspberry-pi-address'
+scp "/tmp/${ARTIFACT}.tar.gz" \
+  "/tmp/${ARTIFACT}.tar.gz.sha256" \
+  "$TARGET_SSH:/tmp/"
+ssh "$TARGET_SSH"
+```
+
+### 5. Verify and extract on the target
+
+After logging in to the target, set the same artifact name, verify the transfer, and extract into a new temporary directory:
+
+```bash
+ARTIFACT=automation-gateway-linux-arm64
+cd /tmp
+sha256sum -c "${ARTIFACT}.tar.gz.sha256"
+
+INSTALL_DIR="$(mktemp -d /tmp/HomeAutomationMonitorGW-install.XXXXXX)"
+tar -xzf "/tmp/${ARTIFACT}.tar.gz" -C "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+test -x "./$ARTIFACT"
+test -x ./scripts/install.sh
+file "./$ARTIFACT"
+```
+
+The checksum must report `OK`, and `file` must report the architecture selected in step 1.
+
+### 6. Install the prebuilt binary
+
+Run the repository's installer from the extracted package:
+
+```bash
+sudo ./scripts/install.sh --binary="$INSTALL_DIR/$ARTIFACT"
+```
+
+With `--binary`, the target does not need Go and does not download Go modules. Existing site-owned configuration, tokens, secrets, and TLS files are preserved. On a first installation with incomplete configuration or missing credentials, the installer intentionally leaves the service inactive. Finish provisioning and then run:
+
+```bash
+sudo ./scripts/install.sh --binary="$INSTALL_DIR/$ARTIFACT" --start
+```
+
+For an already configured and active installation, a changed binary is installed and the active service is restarted. After a successful installation, the transfer archive, checksum, and extracted temporary directory may be removed; this does not remove the installed service:
+
+```bash
+cd "$HOME"
+rm -rf -- "$INSTALL_DIR"
+rm -f -- "/tmp/${ARTIFACT}.tar.gz" "/tmp/${ARTIFACT}.tar.gz.sha256"
+```
 
 ## Configuration
 
